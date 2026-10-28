@@ -8,9 +8,8 @@ php_default_version: "8.3"
 # Sury repository (https://packages.sury.org/php/README.txt).
 php_sury_repo_url: https://packages.sury.org/php/
 php_sury_key_url: https://packages.sury.org/php/apt.gpg
-php_sury_keyring: /usr/share/keyrings/deb.sury.org-php.gpg
-# Expected fingerprint of the Sury signing key. The role stops on mismatch.
-# TODO: re-verify against https://packages.sury.org/php/README.txt before first run.
+# Sury key fingerprint (checked 2026-10-28; key renewed 2025-11-17, same fingerprint).
+# The role stops on mismatch (tasks/repo-verify.yml).
 php_sury_key_fingerprint: 15058500A0235D97F5D10063B188E2B695BD4743
 
 # Package suffixes installed for each version: php<ver>-<ext>.

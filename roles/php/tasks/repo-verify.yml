@@ -1,0 +1,14 @@
+---
+# Runs after the deb822 task fetched the key into /etc/apt/keyrings/.
+- name: Read Sury key fingerprint
+  ansible.builtin.command:
+    cmd: gpg --show-keys --with-colons /etc/apt/keyrings/sury-php.gpg
+  register: php_sury_key_info
+  changed_when: false
+
+- name: Check Sury key fingerprint
+  ansible.builtin.assert:
+    that:
+      - php_sury_key_fingerprint in php_sury_key_info.stdout
+    fail_msg: "Sury key fingerprint mismatch, expected {{ php_sury_key_fingerprint }}"
+    quiet: true

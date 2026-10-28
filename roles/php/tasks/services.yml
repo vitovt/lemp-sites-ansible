@@ -1,0 +1,14 @@
+---
+# An FPM master without pools does not start. Versions without sites stay off.
+- name: Enable FPM for versions used by sites
+  ansible.builtin.systemd_service:
+    name: "php{{ item }}-fpm"
+    enabled: true
+  loop: "{{ php_versions_active }}"
+
+- name: Disable FPM for versions without sites
+  ansible.builtin.systemd_service:
+    name: "php{{ item }}-fpm"
+    enabled: false
+    state: stopped
+  loop: "{{ php_versions_all | difference(php_versions_active) }}"

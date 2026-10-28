@@ -44,7 +44,9 @@
     php_ini_settings: "{{ php_ini_cli }}"
   loop: "{{ php_versions_all }}"
 
-# TODO (not written yet, tool issue during authoring):
-#   - enable FPM units for php_versions_active
-#   - stop + disable FPM units for php_versions_all minus php_versions_active
-#   - fetch wp-cli phar to php_wpcli_path with sha512 checksum
+- name: Manage FPM services
+  ansible.builtin.import_tasks: services.yml
+
+# TODO: wp-cli install task (get_url of php_wpcli_url to php_wpcli_path,
+#   checksum sha512:<url>.sha512, mode 0755). Not written: tool review error.
+#   Until then install it by hand; the site role needs php_wpcli_path.

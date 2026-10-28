@@ -11,6 +11,9 @@
     signed_by: "{{ php_sury_key_url }}"
   register: php_sury_repo
 
+- name: Verify Sury key
+  ansible.builtin.import_tasks: repo-verify.yml
+
 - name: Update apt cache after adding Sury
   ansible.builtin.apt:
     update_cache: true
