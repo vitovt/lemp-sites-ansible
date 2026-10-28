@@ -1,0 +1,7 @@
+---
+# Debian's "default" site also claims default_server on :80; drop it.
+- name: Disable Debian default site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx

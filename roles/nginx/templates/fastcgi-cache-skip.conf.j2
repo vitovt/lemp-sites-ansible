@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+# Cache skip rules adapted from Trellis (https://github.com/roots/trellis),
+# MIT License, Copyright (c) Roots Software LLC.
+map $request_uri $wp_skip_cache_uri {
+    default 0;
+    ~*/wp-admin/|/wp-json/|/xmlrpc.php|wp-.*.php|/feed/|index.php|sitemap(_index)?.xml 1;
+}
+map $http_cookie $wp_skip_cache_cookie {
+    default 0;
+    ~*comment_author|wordpress_[a-f0-9]+|wp-postpass|wordpress_no_cache|wordpress_logged_in|woocommerce_items_in_cart|woocommerce_cart_hash|wp_woocommerce_session_ 1;
+}
+map $request_method $wp_skip_cache_method {
+    default 1;
+    GET 0;
+    HEAD 0;
+}
+map $query_string $wp_skip_cache_query {
+    default 1;
+    "" 0;
+}
+map "$wp_skip_cache_uri$wp_skip_cache_cookie$wp_skip_cache_method$wp_skip_cache_query" $wp_skip_cache {
+    default 1;
+    0000 0;
+}

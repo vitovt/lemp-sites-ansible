@@ -1,0 +1,13 @@
+---
+# Notify "reload nginx": config is tested first, reload only if the test passes.
+- name: Test nginx configuration
+  ansible.builtin.command:
+    cmd: nginx -t
+  changed_when: false
+  listen: reload nginx
+
+- name: Reload nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded
+  listen: reload nginx

@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Catch-all: unknown Host / SNI gets no answer.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    http2 on;
+    server_name _;
+    ssl_reject_handshake on;
+}

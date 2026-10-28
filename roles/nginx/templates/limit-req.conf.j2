@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# Rate limit zone for wp-login.php and xmlrpc.php (key = visitor IP after realip).
+limit_req_zone $binary_remote_addr zone=wp_login:10m rate={{ nginx_login_rate }};
+limit_req_status 429;

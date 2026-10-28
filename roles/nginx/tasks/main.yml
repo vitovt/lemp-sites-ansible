@@ -1,0 +1,69 @@
+---
+- name: Install nginx packages
+  ansible.builtin.apt:
+    name: "{{ nginx_packages }}"
+    state: present
+
+- name: Get Cloudflare ranges (controller, fallback to static list)
+  ansible.builtin.set_fact:
+    nginx_cf_ranges: >-
+      {{ ((lookup('ansible.builtin.url', nginx_cloudflare_ipv4_url, wantlist=True, errors='ignore') or nginx_cloudflare_ipv4_fallback)
+        + (lookup('ansible.builtin.url', nginx_cloudflare_ipv6_url, wantlist=True, errors='ignore') or nginx_cloudflare_ipv6_fallback))
+        if nginx_cloudflare_fetch else (nginx_cloudflare_ipv4_fallback + nginx_cloudflare_ipv6_fallback) }}
+
+- name: Install nginx.conf
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Install http-level configs
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/nginx/conf.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - cloudflare.conf
+    - fastcgi-cache.conf
+    - fastcgi-cache-skip.conf
+    - limit-req.conf
+  notify: reload nginx
+
+- name: Install snippets
+  ansible.builtin.template:
+    src: "snippets/{{ item }}.j2"
+    dest: "/etc/nginx/snippets/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - security-headers.conf
+    - wp-rules.conf
+  notify: reload nginx
+
+- name: Create FastCGI cache dir
+  ansible.builtin.file:
+    path: "{{ nginx_fastcgi_cache_path }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0750"
+
+- name: Install default server
+  ansible.builtin.template:
+    src: default-server.conf.j2
+    dest: /etc/nginx/sites-enabled/00-default.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Disable Debian default site
+  ansible.builtin.import_tasks: debian-default.yml
+
+# TODO: ensure nginx service started+enabled (Debian does this on install).
