@@ -1,0 +1,4 @@
+---
+- name: Redis role is a stub
+  ansible.builtin.debug:
+    msg: "TODO redis: install {{ redis_package }}, unix socket {{ redis_socket }}, per-site ACL users. Sites with redis: true get no cache yet."

@@ -1,0 +1,4 @@
+---
+- name: Telegram alert role is a stub
+  ansible.builtin.debug:
+    msg: "TODO telegram_alert: install {{ telegram_alert_bin }} and {{ telegram_alert_conf }} from {{ telegram_alert_token_src }} / {{ telegram_alert_chat_id_src }}."

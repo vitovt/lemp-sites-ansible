@@ -1,0 +1,14 @@
+---
+# STUB. Interface for certbot_cloudflare (DNS-01 via Cloudflare API).
+# Runs before the site role. The site vhost uses
+# /etc/letsencrypt/live/<domain>/ if it exists, else snakeoil.
+certbot_cloudflare_packages:
+  - certbot
+  - python3-certbot-dns-cloudflare
+# Scoped API token (Zone:DNS:Edit). Missing file = role skips with a warning.
+certbot_cloudflare_credentials_src: "{{ secrets_dir }}/cloudflare.ini"
+certbot_cloudflare_credentials: /etc/letsencrypt/cloudflare.ini
+certbot_cloudflare_propagation_seconds: 30
+certbot_cloudflare_email: ""
+# Deploy hook reloads nginx after renewal.
+certbot_cloudflare_deploy_hook: "systemctl reload nginx"

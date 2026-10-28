@@ -1,0 +1,4 @@
+---
+- name: WP monitor role is a stub
+  ansible.builtin.debug:
+    msg: "TODO wp_monitor: install check script + systemd timer ({{ wp_monitor_on_calendar }}), checks {{ wp_monitor_checks | join(\", \") }}."

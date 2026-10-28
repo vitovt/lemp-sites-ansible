@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Sysadmin bot
+  description: "Redis object cache with per-site ACL users (STUB)"
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+dependencies: []

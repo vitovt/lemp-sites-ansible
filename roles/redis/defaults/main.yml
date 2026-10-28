@@ -1,0 +1,10 @@
+---
+# STUB. Interface for the redis role (object cache for sites with redis: true).
+# Open question: Redis (Debian package) or Valkey?
+redis_package: redis-server
+redis_socket: /run/redis/redis-server.sock
+redis_socket_perm: "770"
+redis_maxmemory: 256mb
+redis_maxmemory_policy: allkeys-lru
+# Per-site ACL user "<user>" limited to keys "<user>:*"; password in
+# secrets/<host>/redis/<domain>.pass (password lookup).

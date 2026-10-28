@@ -1,0 +1,18 @@
+---
+# STUB. Interface for backup_restic.
+backup_restic_mount: /mnt/backups          # role asserts this is a mountpoint
+backup_restic_repo: /mnt/backups/restic
+backup_restic_password_file: "{{ secrets_dir }}/{{ inventory_hostname }}/restic.pass"
+# Per site: DB dump to /srv/sites/<domain>/backup/ first, then restic backup.
+# Dump check: mariadb-dump --single-transaction | gzip; gzip -t;
+# last line has "Dump completed"; flock against parallel runs.
+backup_restic_paths:
+  - /srv/sites
+  - /etc/nginx
+  - /etc/php
+  - /etc/mysql
+  - /etc/letsencrypt
+backup_restic_keep_daily: 7
+backup_restic_keep_weekly: 4
+backup_restic_keep_monthly: 6
+backup_restic_on_calendar: "*-*-* 03:15:00"   # systemd timer

@@ -1,0 +1,4 @@
+---
+- name: Backup restic role is a stub
+  ansible.builtin.debug:
+    msg: "TODO backup_restic: assert {{ backup_restic_mount }} is a mountpoint, install restic, init {{ backup_restic_repo }}, verified DB dumps, systemd timer, forget/prune, Telegram alert on failure."

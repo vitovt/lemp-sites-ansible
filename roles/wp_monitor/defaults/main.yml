@@ -1,0 +1,12 @@
+---
+# STUB. Interface for wp_monitor (nightly integrity checks per site).
+# Checks: wp core verify-checksums, wp plugin verify-checksums --all,
+# git status in htdocs (see wp-git-commit), admin user list compared
+# with a state file. Any change -> telegram-alert.
+wp_monitor_on_calendar: "*-*-* 04:30:00"
+wp_monitor_state_dir: /var/lib/wp-monitor
+wp_monitor_checks:
+  - core_checksums
+  - plugin_checksums
+  - git_status
+  - admin_users

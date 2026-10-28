@@ -1,0 +1,4 @@
+---
+- name: Certbot Cloudflare role is a stub
+  ansible.builtin.debug:
+    msg: "TODO certbot_cloudflare: install certbot + DNS plugin, copy {{ certbot_cloudflare_credentials_src }} (0600), certonly per site (domain + aliases). Sites use snakeoil until then."
