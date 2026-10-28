@@ -1,0 +1,4 @@
+---
+# TODO (not written: tool review error). Template wp-config.php.j2 to htdocs/wp-config.php
+# with force: false, owner <user>, group <user>-php... see README.md, section "wp-config.php".
+[]

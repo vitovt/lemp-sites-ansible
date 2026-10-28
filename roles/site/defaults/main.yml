@@ -1,0 +1,36 @@
+---
+# Base dir: /srv/sites/<domain>/{htdocs,conf/nginx,logs,tmp,backup}
+site_root: /srv/sites
+
+# Defaults merged under every wp_sites entry (wp_sites values win).
+site_defaults:
+  php_version: "{{ php_default_version }}"
+  aliases: []
+  cache: true
+  redis: true
+  xmlrpc: false
+  # Table prefix for a NEW wp-config.php only.
+  table_prefix: wp_
+  # FPM pool limits (pm = ondemand).
+  pm_max_children: 8
+  pm_idle_timeout: 30s
+  pm_max_requests: 500
+  memory_limit: 256M
+  upload_max_filesize: 64M
+
+# Dirs under htdocs/wp-content that the PHP runtime user may write.
+site_writable_dirs:
+  - wp-content/uploads
+  - wp-content/cache
+  - wp-content/upgrade
+
+# Functions disabled in every pool.
+site_disable_functions: >-
+  exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec,
+  show_source,dl,posix_kill,posix_setuid,posix_setgid
+
+# Max Linux user name length (useradd limit is 32; "-php" is appended).
+site_user_max_len: 28
+
+# Real cron: wp cron runs every N minutes (DISABLE_WP_CRON is set).
+site_cron_minute: "*/5"

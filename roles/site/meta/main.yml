@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Sysadmin bot
+  description: One isolated WordPress site (users, dirs, DB, FPM pool, vhost, cron)
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+dependencies: []

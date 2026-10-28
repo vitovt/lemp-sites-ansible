@@ -1,0 +1,25 @@
+---
+- name: Check for Let's Encrypt certificate
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ site_cfg.domain }}/fullchain.pem"
+  register: site_le_cert
+
+- name: Set certificate choice
+  ansible.builtin.set_fact:
+    site_vhost_le_cert: "{{ site_le_cert.stat.exists }}"
+
+- name: Install vhost
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-available/{{ site_cfg.domain }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Enable vhost
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ site_cfg.domain }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ site_cfg.domain }}.conf"
+    state: link
+  notify: reload nginx

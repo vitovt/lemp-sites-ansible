@@ -1,0 +1,4 @@
+---
+# TODO (not written: tool review error). Create the site DB and its DB user here.
+# Plan: README.md, section "Database". Set fact site_db_pass (wpconfig.yml uses it).
+[]

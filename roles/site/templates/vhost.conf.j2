@@ -1,0 +1,79 @@
+# {{ ansible_managed }}
+# {{ site_cfg.domain }}. Parts adapted from Trellis (https://github.com/roots/trellis),
+# MIT License, Copyright (c) Roots Software LLC.
+{% set names = [site_cfg.domain] + site_cfg.aliases %}
+{% set le = '/etc/letsencrypt/live/' ~ site_cfg.domain %}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ names | join(' ') }};
+    if ($cf_origin_ok = 0) { return 444; }
+    return 301 https://{{ site_cfg.domain }}$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name {{ names | join(' ') }};
+
+{% if site_vhost_le_cert %}
+    ssl_certificate {{ le }}/fullchain.pem;
+    ssl_certificate_key {{ le }}/privkey.pem;
+{% else %}
+    # No Let's Encrypt cert yet: snakeoil until certbot_cloudflare issues one.
+    ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+    ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+{% endif %}
+
+    if ($cf_origin_ok = 0) { return 444; }
+{% if site_cfg.aliases %}
+    if ($host != {{ site_cfg.domain }}) { return 301 https://{{ site_cfg.domain }}$request_uri; }
+{% endif %}
+
+    root {{ site_cfg.path }}/htdocs;
+    index index.php;
+    access_log {{ site_cfg.path }}/logs/access.log main;
+    error_log {{ site_cfg.path }}/logs/error.log warn;
+
+    include snippets/security-headers.conf;
+    include snippets/wp-rules.conf;
+
+    # Site-specific rules (root-owned dir).
+    include {{ site_cfg.path }}/conf/nginx/*.conf;
+
+    location = /wp-login.php {
+        limit_req zone=wp_login burst={{ nginx_login_burst }} nodelay;
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/{{ site_cfg.user }}.sock;
+    }
+
+    location = /xmlrpc.php {
+{% if site_cfg.xmlrpc %}
+        limit_req zone=wp_login burst={{ nginx_login_burst }} nodelay;
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/{{ site_cfg.user }}.sock;
+{% else %}
+        return 444;
+{% endif %}
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    # snippets/fastcgi-php.conf (Debian) has try_files $fastcgi_script_name =404.
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/{{ site_cfg.user }}.sock;
+{% if site_cfg.cache %}
+        fastcgi_cache WORDPRESS;
+        fastcgi_cache_valid 200 301 302 {{ nginx_fastcgi_cache_valid }};
+        fastcgi_cache_bypass $wp_skip_cache;
+        fastcgi_no_cache $wp_skip_cache;
+        add_header X-Cache $upstream_cache_status always;
+        include snippets/security-headers.conf;
+{% endif %}
+    }
+}

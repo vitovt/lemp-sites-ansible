@@ -1,0 +1,9 @@
+---
+# TODO (not written: tool review error). Planned tasks:
+#   - group <user>
+#   - code owner <user>: primary group <user>, home = site path, no create_home,
+#     shell /bin/bash, locked password ("!", on_create)
+#   - runtime <user>-php: group <user>, system account, shell /usr/sbin/nologin
+#   - www-data: append to group <user> (nginx reads static files)
+# All later tasks in this role need these accounts; write them before first run.
+[]

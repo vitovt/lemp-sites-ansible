@@ -1,0 +1,18 @@
+---
+- name: Check wp_site_only names a known site
+  ansible.builtin.assert:
+    that:
+      - wp_site_only in (wp_sites | default({}))
+    fail_msg: "wp_site_only={{ wp_site_only }} is not in wp_sites of {{ inventory_hostname }}"
+    quiet: true
+  when: wp_site_only | length > 0
+
+- name: Configure sites
+  ansible.builtin.include_tasks: one-site.yml
+  loop: >-
+    {{ wp_sites | default({}) | dict2items
+       | selectattr('key', 'in', [wp_site_only] if wp_site_only else (wp_sites | default({})).keys() | list)
+       | list }}
+  loop_control:
+    loop_var: site_item
+    label: "{{ site_item.key }}"

@@ -1,0 +1,17 @@
+---
+- name: Install FPM pool
+  ansible.builtin.template:
+    src: pool.conf.j2
+    dest: "/etc/php/{{ site_cfg.php_version }}/fpm/pool.d/{{ site_cfg.user }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload php-fpm
+
+# After a PHP version change the old pool must go, else two masters share one socket.
+- name: Drop pool from other PHP versions
+  ansible.builtin.file:
+    path: "/etc/php/{{ item }}/fpm/pool.d/{{ site_cfg.user }}.conf"
+    state: absent
+  loop: "{{ php_versions_all | difference([site_cfg.php_version]) }}"
+  notify: Reload php-fpm

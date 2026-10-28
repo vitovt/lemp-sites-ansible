@@ -1,0 +1,35 @@
+---
+# One site_cfg. site_item = {key: domain, value: wp_sites entry}.
+- name: Build site config ({{ site_item.key }})
+  ansible.builtin.set_fact:
+    site_cfg: >-
+      {{ site_defaults | combine(site_item.value | default({}, true)) | combine({
+           'domain': site_item.key,
+           'user': (site_item.value | default({}, true)).user | default(site_item.key | regex_replace('[.-]', '_')),
+           'db_name': (site_item.value | default({}, true)).db_name | default(site_item.key | regex_replace('[.-]', '_')),
+           'php_version': ((site_item.value | default({}, true)).php_version | default(php_default_version)) | string,
+           'path': site_root ~ '/' ~ site_item.key }) }}
+
+- name: Check site user name ({{ site_cfg.domain }})
+  ansible.builtin.assert:
+    that:
+      - site_cfg.user is match('^[a-z_][a-z0-9_]*$')
+      - site_cfg.user | length <= site_user_max_len
+      - site_cfg.db_name | length <= 64
+    fail_msg: "Bad user/db name for {{ site_cfg.domain }}: {{ site_cfg.user }} (max {{ site_user_max_len }} chars, [a-z0-9_])"
+    quiet: true
+
+- name: Users ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: users.yml
+- name: Directories ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: dirs.yml
+- name: Database ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: db.yml
+- name: PHP-FPM pool ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: pool.yml
+- name: WordPress config ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: wpconfig.yml
+- name: Nginx vhost ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: vhost.yml
+- name: Cron and logrotate ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: cron.yml

@@ -1,0 +1,29 @@
+; {{ ansible_managed }}
+; PHP-FPM pool for {{ site_cfg.domain }} (PHP {{ site_cfg.php_version }})
+[{{ site_cfg.user }}]
+user = {{ site_cfg.user }}-php
+group = {{ site_cfg.user }}
+listen = /run/php/{{ site_cfg.user }}.sock
+listen.owner = www-data
+listen.group = www-data
+listen.mode = 0660
+
+pm = ondemand
+pm.max_children = {{ site_cfg.pm_max_children }}
+pm.process_idle_timeout = {{ site_cfg.pm_idle_timeout }}
+pm.max_requests = {{ site_cfg.pm_max_requests }}
+request_terminate_timeout = 300s
+catch_workers_output = yes
+chdir = {{ site_cfg.path }}/htdocs
+
+php_admin_value[open_basedir] = {{ site_cfg.path }}/htdocs/:{{ site_cfg.path }}/tmp/
+php_admin_value[upload_tmp_dir] = {{ site_cfg.path }}/tmp
+php_admin_value[session.save_path] = {{ site_cfg.path }}/tmp
+php_admin_value[sys_temp_dir] = {{ site_cfg.path }}/tmp
+php_admin_value[error_log] = {{ site_cfg.path }}/logs/php-error.log
+php_admin_flag[log_errors] = on
+php_admin_flag[display_errors] = off
+php_admin_value[disable_functions] = {{ site_disable_functions }}
+php_admin_value[memory_limit] = {{ site_cfg.memory_limit }}
+php_admin_value[upload_max_filesize] = {{ site_cfg.upload_max_filesize }}
+php_admin_value[post_max_size] = {{ site_cfg.upload_max_filesize }}
