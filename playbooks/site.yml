@@ -1,0 +1,11 @@
+---
+# TODO (not written: tool review error). Planned: one play, hosts: wp, roles in this order:
+# common, telegram_alert, nginx, php, mariadb, redis, certbot_cloudflare, site, backup_restic, wp_monitor
+# (each with a tag of the same name). See README.md, section "Playbooks".
+- name: Converge WordPress hosting node
+  hosts: wp
+  gather_facts: false
+  tasks:
+    - name: Not written yet
+      ansible.builtin.fail:
+        msg: "TODO playbooks/site.yml: role list not written yet."

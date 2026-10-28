@@ -1,0 +1,10 @@
+---
+# STUB: clone a site to a new domain (files + DB, search-replace with wp-cli).
+#   ansible-playbook playbooks/site-clone.yml --limit wp01 -e clone_from=<domain> -e clone_to=<domain>
+- name: Clone one site
+  hosts: wp
+  gather_facts: false
+  tasks:
+    - name: Not implemented
+      ansible.builtin.fail:
+        msg: "TODO site-clone: not implemented. Nothing was changed."

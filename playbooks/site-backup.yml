@@ -1,0 +1,10 @@
+---
+# STUB: back up one site now (DB dump + restic snapshot).
+#   ansible-playbook playbooks/site-backup.yml --limit wp01 -e wp_site_only=<domain>
+- name: Back up one site
+  hosts: wp
+  gather_facts: false
+  tasks:
+    - name: Not implemented
+      ansible.builtin.fail:
+        msg: "TODO site-backup: needs the backup_restic role."

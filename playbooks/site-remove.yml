@@ -1,0 +1,10 @@
+---
+# STUB: remove one site (backup first, then pool, vhost, cron, DB, users, files).
+#   ansible-playbook playbooks/site-remove.yml --limit wp01 -e wp_site_only=<domain>
+- name: Remove one site
+  hosts: wp
+  gather_facts: false
+  tasks:
+    - name: Not implemented
+      ansible.builtin.fail:
+        msg: "TODO site-remove: not implemented. Nothing was changed."
