@@ -1,0 +1,13 @@
+---
+# Computed values. Do not override.
+# PHP versions requested by sites (string form: "8.3").
+php_site_versions: >-
+  {{ (wp_sites | default({})).values()
+     | map(attribute='php_version', default=php_default_version)
+     | map('string') | unique | sort | list }}
+# Everything installed: global list + default + site versions. Nothing is ever purged.
+php_versions_all: >-
+  {{ ((php_versions | map('string') | list) + [php_default_version | string] + php_site_versions)
+     | unique | sort | list }}
+# Versions with at least one pool: their FPM service runs. Others are stopped.
+php_versions_active: "{{ php_site_versions }}"

@@ -1,0 +1,50 @@
+---
+- name: Add Sury PHP repository
+  ansible.builtin.import_tasks: repo.yml
+
+- name: Install PHP packages for all versions
+  ansible.builtin.apt:
+    name: >-
+      {{ (php_extensions + php_extensions_extra_by_version.get(item, []))
+         | difference(php_extensions_skip_by_version.get(item, []))
+         | map('regex_replace', '^', 'php' ~ item ~ '-') | list }}
+    state: present
+  loop: "{{ php_versions_all }}"
+  loop_control:
+    label: "php{{ item }}"
+
+# Debian ships a "www" pool per version. We use one pool per site instead.
+- name: Remove default www pools
+  ansible.builtin.file:
+    path: "/etc/php/{{ item }}/fpm/pool.d/www.conf"
+    state: absent
+  loop: "{{ php_versions_all }}"
+  notify: Reload php-fpm
+
+- name: Install php.ini tuning (FPM)
+  ansible.builtin.template:
+    src: php-tuning.ini.j2
+    dest: "/etc/php/{{ item }}/fpm/conf.d/99-wp-hosting.ini"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    php_ini_settings: "{{ php_ini_fpm | combine(php_ini_fpm_by_version.get(item, {})) }}"
+  loop: "{{ php_versions_all }}"
+  notify: Reload php-fpm
+
+- name: Install php.ini tuning (CLI)
+  ansible.builtin.template:
+    src: php-tuning.ini.j2
+    dest: "/etc/php/{{ item }}/cli/conf.d/99-wp-hosting.ini"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    php_ini_settings: "{{ php_ini_cli }}"
+  loop: "{{ php_versions_all }}"
+
+# TODO (not written yet, tool issue during authoring):
+#   - enable FPM units for php_versions_active
+#   - stop + disable FPM units for php_versions_all minus php_versions_active
+#   - fetch wp-cli phar to php_wpcli_path with sha512 checksum

@@ -1,0 +1,6 @@
+; {{ ansible_managed }}
+; PHP {{ item }} tuning for WordPress hosting. Per-site values are set in the FPM pool.
+date.timezone = {{ common_timezone | default('UTC') }}
+{% for key, value in php_ini_settings | dictsort %}
+{{ key }} = {{ value }}
+{% endfor %}

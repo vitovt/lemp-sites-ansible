@@ -1,0 +1,83 @@
+---
+# Versions installed on every host, even without sites. Versions used by
+# wp_sites[*].php_version are added automatically (see vars/main.yml).
+php_versions:
+  - "8.3"
+php_default_version: "8.3"
+
+# Sury repository (https://packages.sury.org/php/README.txt).
+php_sury_repo_url: https://packages.sury.org/php/
+php_sury_key_url: https://packages.sury.org/php/apt.gpg
+php_sury_keyring: /usr/share/keyrings/deb.sury.org-php.gpg
+# Expected fingerprint of the Sury signing key. The role stops on mismatch.
+# TODO: re-verify against https://packages.sury.org/php/README.txt before first run.
+php_sury_key_fingerprint: 15058500A0235D97F5D10063B188E2B695BD4743
+
+# Package suffixes installed for each version: php<ver>-<ext>.
+php_extensions:
+  - bcmath
+  - cli
+  - common
+  - curl
+  - fpm
+  - gd
+  - igbinary
+  - imagick
+  - intl
+  - mbstring
+  - mysql
+  - opcache
+  - redis
+  - soap
+  - xml
+  - zip
+# Extra / skipped suffixes per version (packaging differs between branches).
+php_extensions_extra_by_version:
+  "7.4":
+    - json
+php_extensions_skip_by_version:
+  # opcache is built into PHP 8.5; Sury ships no separate package.
+  "8.5":
+    - opcache
+
+# php.ini settings for FPM (conf.d/99-wp-hosting.ini). Per-site limits live in the pool.
+php_ini_fpm:
+  expose_php: "Off"
+  memory_limit: 256M
+  max_execution_time: 120
+  max_input_time: 120
+  max_input_vars: 5000
+  post_max_size: 64M
+  upload_max_filesize: 64M
+  allow_url_include: "Off"
+  cgi.fix_pathinfo: 0
+  realpath_cache_size: 4096K
+  realpath_cache_ttl: 600
+  session.use_strict_mode: 1
+  session.cookie_httponly: 1
+  session.cookie_secure: 1
+  # No mail on this platform: wp_mail() fails fast instead of hanging.
+  sendmail_path: /bin/false
+  opcache.enable: 1
+  opcache.memory_consumption: 192
+  opcache.interned_strings_buffer: 16
+  opcache.max_accelerated_files: 20000
+  # Code changes via wp-cli/git must be picked up without FPM restart.
+  opcache.validate_timestamps: 1
+  opcache.revalidate_freq: 2
+# php.ini settings for CLI (wp-cli, cron).
+php_ini_cli:
+  expose_php: "Off"
+  memory_limit: 512M
+  max_execution_time: 0
+  sendmail_path: /bin/false
+# Per-version overrides, merged over php_ini_fpm. Example:
+#   php_ini_fpm_by_version:
+#     "7.4":
+#       memory_limit: 192M
+php_ini_fpm_by_version: {}
+
+# wp-cli phar (owner users run updates with it).
+php_wpcli_version: 2.12.0
+php_wpcli_url: "https://github.com/wp-cli/wp-cli/releases/download/v{{ php_wpcli_version }}/wp-cli-{{ php_wpcli_version }}.phar"
+php_wpcli_path: /usr/local/bin/wp

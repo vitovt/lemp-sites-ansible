@@ -1,0 +1,17 @@
+---
+# deb822 source with a per-repo signed-by key (no global apt-key).
+# The module fetches the key from php_sury_key_url into /etc/apt/keyrings/.
+- name: Add Sury repository (deb822)
+  ansible.builtin.deb822_repository:
+    name: sury-php
+    types: [deb]
+    uris: "{{ php_sury_repo_url }}"
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: [main]
+    signed_by: "{{ php_sury_key_url }}"
+  register: php_sury_repo
+
+- name: Update apt cache after adding Sury
+  ansible.builtin.apt:
+    update_cache: true
+  when: php_sury_repo is changed  # noqa: no-handler (cache must be fresh before the install task below)
