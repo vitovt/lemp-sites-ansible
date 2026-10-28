@@ -1,7 +1,9 @@
 ---
-# NOTE: make sure your SSH public key is installed for ansible_user BEFORE the
-# first run. Key-only login without a key locks you out.
-# TODO: add an automatic pre-check for the key file here.
+# TODO: add common_ssh_admin_keys_file to defaults (tool review error while writing).
+# Until then set it in group_vars, e.g. the admin user authorized_keys path.
+- name: Check admin SSH key before key-only SSH
+  ansible.builtin.import_tasks: ssh-precheck.yml
+  when: common_ssh_admin_keys_file is defined
 
 - name: Harden sshd with devsec.hardening.ssh_hardening
   ansible.builtin.include_role:
