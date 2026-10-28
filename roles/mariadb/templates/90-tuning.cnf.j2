@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+# Loaded after Debian's 50-server.cnf.
+{% set pool_mb = [ (ansible_facts['memtotal_mb'] * mariadb_buffer_pool_fraction) | int, mariadb_buffer_pool_min_mb ] | max %}
+[mariadbd]
+bind-address            = {{ mariadb_bind_address }}
+skip-name-resolve
+character-set-server    = utf8mb4
+collation-server        = utf8mb4_unicode_ci
+max_connections         = {{ mariadb_max_connections }}
+tmp_table_size          = {{ mariadb_tmp_table_size }}
+max_heap_table_size     = {{ mariadb_tmp_table_size }}
+performance_schema      = OFF
+
+innodb_buffer_pool_size = {{ mariadb_buffer_pool_size if mariadb_buffer_pool_size else (pool_mb ~ 'M') }}
+innodb_log_file_size    = {{ mariadb_log_file_size }}
+innodb_flush_method     = O_DIRECT
+innodb_file_per_table   = ON
+
+slow_query_log          = {{ 'ON' if mariadb_slow_log else 'OFF' }}
+slow_query_log_file     = {{ mariadb_slow_log_file }}
+long_query_time         = {{ mariadb_long_query_time }}
+
+[client]
+default-character-set   = utf8mb4

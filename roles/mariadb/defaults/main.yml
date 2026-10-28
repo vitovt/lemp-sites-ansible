@@ -1,0 +1,25 @@
+---
+# Debian 13 ships MariaDB 11.8. No external repository.
+mariadb_packages:
+  - mariadb-server
+  - mariadb-client
+  - mariadb-backup
+  - python3-pymysql
+
+# InnoDB buffer pool = RAM x fraction (container RAM as the LXC reports it).
+mariadb_buffer_pool_fraction: 0.4
+mariadb_buffer_pool_min_mb: 128
+# Set a fixed size (e.g. "2G") to skip the calculation.
+mariadb_buffer_pool_size: ""
+mariadb_log_file_size: 256M
+mariadb_max_connections: 100
+mariadb_tmp_table_size: 64M
+mariadb_bind_address: 127.0.0.1
+
+# Slow query log.
+mariadb_slow_log: true
+mariadb_slow_log_file: /var/log/mysql/mariadb-slow.log
+mariadb_long_query_time: 2
+
+# Socket used by Ansible (root via unix_socket auth, no password).
+mariadb_socket: /run/mysqld/mysqld.sock

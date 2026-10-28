@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Sysadmin bot
+  description: MariaDB from Debian with tuned my.cnf for WordPress
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+dependencies: []

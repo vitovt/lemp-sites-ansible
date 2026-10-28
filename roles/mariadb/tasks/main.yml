@@ -1,0 +1,34 @@
+---
+- name: Install MariaDB packages
+  ansible.builtin.apt:
+    name: "{{ mariadb_packages }}"
+    state: present
+
+- name: Install MariaDB tuning config
+  ansible.builtin.template:
+    src: 90-tuning.cnf.j2
+    dest: /etc/mysql/mariadb.conf.d/90-tuning.cnf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mariadb
+
+- name: Start MariaDB
+  ansible.builtin.service:
+    name: mariadb
+    state: started
+    enabled: true
+
+# Debian has no anonymous users or test DB by default; this keeps it so.
+- name: Remove anonymous DB users
+  community.mysql.mysql_user:
+    name: ""
+    host_all: true
+    state: absent
+    login_unix_socket: "{{ mariadb_socket }}"
+
+- name: Remove test database
+  community.mysql.mysql_db:
+    name: test
+    state: absent
+    login_unix_socket: "{{ mariadb_socket }}"
