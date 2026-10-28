@@ -1,0 +1,14 @@
+# Secrets: everything under secrets/ is private, except the docs and *.example templates.
+/secrets/*
+!/secrets/README.md
+!/secrets/*.example
+
+# Ansible runtime artefacts
+*.retry
+/collections/
+/galaxy_roles/
+/.ansible/
+
+# Local Python virtualenv
+/.venv/
+__pycache__/

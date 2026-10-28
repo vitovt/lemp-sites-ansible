@@ -1,0 +1,22 @@
+---
+# Upstream content. Install with:
+#   ansible-galaxy install -r requirements.yml
+# Versions are pinned to a major line. Review changelogs before bumping.
+collections:
+  # ssh_hardening only. os_hardening is NOT used: it touches sysctl, kernel
+  # modules and mount options that an unprivileged LXC cannot change.
+  - name: devsec.hardening
+    version: ">=11.0.0,<12.0.0"
+  # mysql_db / mysql_user modules for the per-site databases.
+  - name: community.mysql
+    version: ">=3.10.0,<4.0.0"
+  # timezone module.
+  - name: community.general
+    version: ">=10.0.0,<12.0.0"
+
+# No Galaxy roles on purpose (see README.md, section "Upstream"):
+# - geerlingguy.php-versions purges other PHP versions -> own `php` role.
+# - geerlingguy.redis has no per-site ACL users -> own small `redis` role.
+# - geerlingguy.certbot has no first-class DNS-01/Cloudflare flow -> own `certbot_cloudflare`.
+# - roles-ansible.restic needs a DB-dump pre-hook anyway -> own `backup_restic`.
+roles: []
