@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Minimal key-only SSH. Used only when common_ssh_provider == "minimal".
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+PermitRootLogin prohibit-password
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+MaxAuthTries 3
+LoginGraceTime 30

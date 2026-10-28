@@ -1,0 +1,28 @@
+---
+- name: Check platform is Debian 13
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == common_expected_distribution
+      - ansible_facts['distribution_major_version'] == common_expected_major_version
+    fail_msg: >-
+      Expected {{ common_expected_distribution }} {{ common_expected_major_version }},
+      found {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_major_version'] }}.
+    quiet: true
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ common_timezone }}"
+  notify: Restart cron
+
+- name: Configure unattended upgrades
+  ansible.builtin.import_tasks: unattended.yml
+
+- name: Configure SSH
+  ansible.builtin.import_tasks: ssh.yml

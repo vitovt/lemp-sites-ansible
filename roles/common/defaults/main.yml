@@ -1,0 +1,34 @@
+---
+# Base packages for every node. No MTA on purpose (sites send no mail).
+common_packages:
+  - acl                 # needed for become_user to unprivileged users
+  - apt-transport-https
+  - ca-certificates
+  - cron
+  - curl
+  - git
+  - gnupg
+  - htop
+  - less
+  - locales
+  - logrotate
+  - python3-apt
+  - rsync
+  - sudo
+  - unzip
+  - vim-tiny
+
+common_timezone: Etc/UTC
+
+# Unattended upgrades: Debian security pocket only.
+# Set to true to also auto-update Sury PHP packages (restarts PHP-FPM).
+common_unattended_include_sury: false
+common_unattended_auto_reboot: false
+
+# SSH: "devsec" = devsec.hardening.ssh_hardening (full sshd_config),
+#      "minimal" = small drop-in in /etc/ssh/sshd_config.d/ (key-only).
+common_ssh_provider: devsec
+
+# Expected platform. The role stops on anything else.
+common_expected_distribution: Debian
+common_expected_major_version: "13"

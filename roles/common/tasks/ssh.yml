@@ -1,0 +1,20 @@
+---
+# NOTE: make sure your SSH public key is installed for ansible_user BEFORE the
+# first run. Key-only login without a key locks you out.
+# TODO: add an automatic pre-check for the key file here.
+
+- name: Harden sshd with devsec.hardening.ssh_hardening
+  ansible.builtin.include_role:
+    name: devsec.hardening.ssh_hardening
+  when: common_ssh_provider == 'devsec'
+
+- name: Install minimal sshd drop-in (key-only)
+  ansible.builtin.template:
+    src: sshd-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  when: common_ssh_provider == 'minimal'
+  notify: Reload sshd

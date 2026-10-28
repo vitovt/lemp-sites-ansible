@@ -1,0 +1,16 @@
+// {{ ansible_managed }}
+// Security updates only. Point releases and third-party repos are updated by hand.
+Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+{% if common_unattended_include_sury %}
+        "origin=deb.sury.org,codename=${distro_codename}";
+{% endif %}
+};
+
+Unattended-Upgrade::Package-Blacklist {
+};
+
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "{{ common_unattended_auto_reboot | bool | lower }}";
+// No local mail: results go to /var/log/unattended-upgrades/.
+Unattended-Upgrade::Mail "";
