@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# DRAFT. Site CLI for this repo. Runs on the admin laptop, not on the server.
+# Usage:
+#   scripts/site add <host> <domain> <user> [php_version] [--dry-run]
+#   scripts/site info <host> [domain]
+#   scripts/site remove|clone ...   (stubs, see playbooks/)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+die() { echo "error: $*" >&2; exit 1; }
+DRY=0
+args=()
+for a in "$@"; do [[ $a == --dry-run ]] && DRY=1 || args+=("$a"); done
+set -- "${args[@]}"
+
+valid_host()   { [[ -d inventories/prod/host_vars/$1 ]] || die "unknown host: $1"; }
+valid_domain() { [[ $1 =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "bad domain: $1"; }
+valid_user()   { [[ $1 =~ ^[a-z][a-z0-9]{1,27}$ ]] || die "bad user (a-z0-9, 2-28): $1"; }
+confirm()      { read -r -p "$1 [y/N] " r; [[ $r == y ]] || die "aborted"; }
+
+cmd_add() {
+  [[ $# -ge 3 ]] || die "usage: add <host> <domain> <user> [php_version]"
+  local host=$1 domain=$2 user=$3 php=${4:-8.3} f
+  valid_host "$host"; valid_domain "$domain"; valid_user "$user"
+  f=inventories/prod/host_vars/$host/sites.yml
+  grep -q "^  ${domain}:" "$f" && die "$domain already in $f"
+  grep -q "user: ${user}\$" "$f" && die "user $user already used in $f"
+  # wp_sites must stay the last top-level key in sites.yml.
+  local entry
+  entry=$(printf '  %s:\n    user: %s\n    php_version: "%s"\n    db_name: %s\n' "$domain" "$user" "$php" "$user")
+  echo "$entry"
+  ((DRY)) && { echo "(dry-run) not written"; return; }
+  confirm "Add $domain to $f and converge $host?"
+  printf '%s\n' "$entry" >> "$f"
+  ansible-playbook playbooks/site.yml --limit "$host" -e "wp_site_only=$domain"
+}
+
+cmd_info() {
+  [[ $# -ge 1 ]] || die "usage: info <host> [domain]"
+  valid_host "$1"
+  local f=inventories/prod/host_vars/$1/sites.yml
+  if [[ $# -ge 2 ]]; then awk -v d="  $2:" '$0==d{p=1;print;next} p&&/^  [^ ]/{p=0} p' "$f"
+  else grep -E '^  [a-z0-9.-]+:$' "$f" | tr -d ' :'; fi
+}
+
+cmd_stub() { die "'$1' is not implemented yet (TODO, see playbooks/site-$1.yml)"; }
+
+case "${1:-}" in
+  add)    shift; cmd_add "$@" ;;
+  info)   shift; cmd_info "$@" ;;
+  remove|clone) cmd_stub "$1" ;;
+  *) sed -n '2,7p' "$0"; exit 1 ;;
+esac
