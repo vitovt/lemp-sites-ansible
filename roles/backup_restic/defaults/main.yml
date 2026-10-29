@@ -19,6 +19,7 @@ backup_restic_paths:
   - /etc/letsencrypt
 backup_restic_excludes:
   - /srv/sites/*/tmp
+  - /srv/sites/*/owner-tmp
   - /srv/sites/*/htdocs/wp-content/cache
 backup_restic_keep_daily: 7
 backup_restic_keep_weekly: 4

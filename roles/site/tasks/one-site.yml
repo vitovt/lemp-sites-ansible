@@ -56,3 +56,8 @@
   changed_when: true
   when: "'site_fix_perms' in ansible_run_tags"
   tags: [never, site_fix_perms]
+
+- name: Check existing code permissions
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/site-fix-perms, "{{ site_cfg.domain }}", --check]
+  changed_when: false

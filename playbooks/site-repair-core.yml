@@ -19,11 +19,15 @@
     repair_go: "{{ (confirm | default('')) == repair_d }}"
     repair_root: "/srv/sites/{{ repair_d }}"
     repair_monitor: "{{ wp_monitor_bin | default('/usr/local/sbin/wp-monitor') }}"
+  pre_tasks:
+    - name: Check test isolation
+      ansible.builtin.import_tasks: tasks/test-guard.yml
+
   tasks:
     - name: Check arguments
       ansible.builtin.assert:
         that:
-          - repair_d is match('^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$')
+          - repair_d is match('^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9-]+)$')
         fail_msg: "Usage: -e repair_site=<domain> [-e confirm=<domain> [-e quarantine=true]]"
         quiet: true
 
@@ -57,17 +61,23 @@
               '--path=' ~ repair_root ~ '/htdocs', '--skip-plugins', '--skip-themes'] }}
         repair_files: "{{ repair_before.stdout_lines | select('match', '^FILE ') | map('regex_replace', '^FILE ', '') | list }}"
       block:
-        - name: Read core version and locale
-          ansible.builtin.command:
-            argv: "{{ repair_wp + ['eval', 'global $wp_version, $wp_local_package; echo $wp_version, \" \", $wp_local_package ?: \"en_US\";'] }}"
-          register: repair_ver
-          changed_when: false
+        - name: Read core metadata without executing site PHP
+          ansible.builtin.slurp:
+            src: "{{ repair_root }}/htdocs/wp-includes/version.php"
+          register: repair_version_file
+
+        - name: Parse static version metadata
+          ansible.builtin.set_fact:
+            repair_core_version: >-
+              {{ repair_version_file.content | b64decode | regex_findall("(?m)^[$]wp_version = '([0-9.]+)';") | first }}
+            repair_core_locale: >-
+              {{ (repair_version_file.content | b64decode | regex_findall("(?m)^[$]wp_local_package = '([A-Za-z_]+)';") | first) | default('en_US') }}
 
         - name: Re-download core over the site
           ansible.builtin.command:
             argv: >-
               {{ repair_wp + ['core', 'download', '--force', '--skip-content',
-                 '--version=' ~ repair_ver.stdout.split()[0], '--locale=' ~ repair_ver.stdout.split()[1]] }}
+                 '--version=' ~ repair_core_version, '--locale=' ~ repair_core_locale] }}
           changed_when: true
 
         - name: Refuse unsafe paths
@@ -87,6 +97,7 @@
               install -d -o root -g root -m 0700 "{{ repair_root }}/quarantine" "$Q"
               while IFS= read -r f; do
                 [ -e "$H/$f" ] || continue
+                case "$(realpath -m "$H/$f")" in "$H"/*) ;; *) echo "unsafe symlink path" >&2; exit 1;; esac
                 mkdir -p "$Q/$(dirname "$f")"
                 mv -n -- "$H/$f" "$Q/$f"
                 echo "$f"

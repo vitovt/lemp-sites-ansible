@@ -1,0 +1,19 @@
+---
+- name: Check the disposable environment marker
+  ansible.builtin.slurp:
+    src: /etc/wp-hosting-test-id
+  register: test_marker
+  when: hosting_test_mode | default(false) | bool
+  tags: [always]
+
+- name: Require isolated integration settings
+  ansible.builtin.assert:
+    that:
+      - test_marker.content | b64decode | trim == hosting_test_id
+      - secrets_dir == test_artifact_root ~ '/secrets'
+      - test_artifact_root is match('^/tmp/lemp-integration-[a-zA-Z0-9_-]+$')
+      - certbot_cloudflare_enabled | default(false) | bool == false
+      - inventory_hostname == 'wptest'
+    fail_msg: "The integration environment or secret path is not isolated."
+  when: hosting_test_mode | default(false) | bool
+  tags: [always]

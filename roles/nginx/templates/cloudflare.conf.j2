@@ -18,3 +18,14 @@ geo $realip_remote_addr $cf_origin_ok {
     {{ net }} 1;
 {% endfor %}
 }
+
+# Only a local root operation uses this uncached health request during maintenance.
+geo $realip_remote_addr $wp_local {
+    default 0;
+    127.0.0.1/32 1;
+    ::1/128 1;
+}
+map "$wp_local:$http_x_wp_health" $wp_internal_health {
+    default 0;
+    "1:1" 1;
+}

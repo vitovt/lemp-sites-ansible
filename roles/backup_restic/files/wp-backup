@@ -1,169 +1,195 @@
-#!/bin/bash
-# wp-backup            nightly run: dump all site DBs, restic backup, forget/prune, check
-# wp-backup <domain>   one site now: dump its DB, restic backup of /srv/sites/<domain>
-# wp-backup verify [domain]
-#     read-only test of the newest snapshot of each site: dump restorable and complete,
-#     loads into a scratch database (dropped after), core files present; restic check
-#     with a 5% data read. PASS/FAIL lines, exit 1 on FAIL, no alert.
-# wp-backup restore <domain> [snapshot]
-#     files + dump of the site into /srv/restore/<domain>-<time>/ (root, 0700). Live site untouched.
-# wp-backup restore-db <domain> <dump.sql.gz> --yes
-#     load a dump into the site's live DB. Saves the current DB first to
-#     backup/db-before-restore-<time>.sql.gz. CREATE DATABASE/USE lines are stripped,
-#     so a dump of site A can be loaded into site B.
-# Config: /etc/restic/env. Sites: /srv/sites/*/conf/site.env (site role).
-# On failure: tg-alert, exit 1.
-set -euo pipefail
-umask 077
-SITES_ROOT=/srv/sites
-set -a; . /etc/restic/env; set +a
+#!/usr/bin/env python3
+"""Back up, verify, stage and restore managed WordPress data."""
+import argparse
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import re
+import signal
+import sys
+import tempfile
+import time
 
-site_env() {  # $1 = domain -> DOMAIN DB_NAME SITE_USER PHP_VERSION
-    local env="$SITES_ROOT/$1/conf/site.env"
-    [ -f "$env" ] || { echo "unknown site: $1" >&2; exit 2; }
-    eval "$(. "$env"; printf 'DOMAIN=%q DB_NAME=%q SITE_USER=%q PHP_VERSION=%q' "$DOMAIN" "$DB_NAME" "$SITE_USER" "$PHP_VERSION")"
-}
+sys.path.insert(0, '/usr/local/lib/wp-hosting')
+from wp_hosting import (Database, SITES, backup_site, clone, load, operation_lock, prefix,
+    read_env, require_wordpress_tables, restore_database, remove_site, update_site, sha256_file, run, site)
 
-# Newest snapshot that contains /srv/sites/<domain> (nightly: /srv/sites, or site:<domain>).
-snapshot_for() {
-    restic snapshots --json | python3 -c '
-import json, sys
-d = sys.argv[1]
-snaps = [s for s in json.load(sys.stdin)
-         if any(p == "/srv/sites" or p == "/srv/sites/" + d for p in s.get("paths", []))]
-snaps.sort(key=lambda s: s["time"])
-print(snaps[-1]["short_id"] if snaps else "")' "$1"
-}
 
-strip_db() { sed -E '/^(CREATE DATABASE|USE )/d'; }
+def snapshot_for(domain, env):
+    snapshots = json.loads(run(['restic', 'snapshots', '--json', '--tag', 'complete'], env=env).stdout)
+    candidates = [s for s in snapshots if any(p in (str(SITES), str(SITES / domain)) for p in s['paths'])]
+    if not candidates:
+        raise ValueError('No complete snapshot for ' + domain)
+    return max(candidates, key=lambda s: s['time'])['id']
 
-if [ "${1:-}" = verify ]; then
-    shift
-    failed=0
-    res() { echo "$1 $2 $3${4:+: $4}"; [ "$1" != FAIL ] || failed=1; }
-    for env in "$SITES_ROOT"/*/conf/site.env; do
-        [ -e "$env" ] || continue
-        d=$(basename "$(dirname "$(dirname "$env")")")
-        [ -z "${1:-}" ] || [ "$d" = "$1" ] || continue
-        site_env "$d"
-        snap=$(snapshot_for "$d")
-        [ -n "$snap" ] || { res FAIL "$d" backup "no snapshot"; continue; }
-        base="$SITES_ROOT/$d"
-        files=$(restic ls "$snap" "$base/htdocs/wp-includes/version.php" "$base/htdocs/wp-config.php" 2>/dev/null | grep -c "^$base/htdocs/" || true)
-        if [ ! -f "$base/htdocs/wp-includes/version.php" ]; then res SKIP "$d" backup_files "no WordPress on the live site"
-        elif [ "$files" = 2 ]; then res PASS "$d" backup_files "snapshot $snap"
-        else res FAIL "$d" backup_files "snapshot $snap lacks version.php/wp-config.php"; fi
-        tmp=$(mktemp)
-        if ! restic dump "$snap" "$base/backup/db.sql.gz" > "$tmp" 2>/dev/null; then
-            res FAIL "$d" backup_db "no db.sql.gz in snapshot $snap"; rm -f "$tmp"; continue
-        fi
-        if ! gzip -t "$tmp" 2>/dev/null || ! zcat "$tmp" | tail -n 1 | grep -q 'Dump completed'; then
-            res FAIL "$d" backup_db "dump in $snap is broken or incomplete"; rm -f "$tmp"; continue
-        fi
-        scratch="wpbv_$$_$RANDOM"
-        mariadb -e "CREATE DATABASE \`$scratch\`"
-        if zcat "$tmp" | strip_db | mariadb "$scratch" 2>/tmp/wp-backup-verify.err; then
-            n=$(mariadb -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$scratch'")
-            live=$(mariadb -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME'")
-            if [ "$n" = 0 ] && [ "$live" = 0 ]; then res SKIP "$d" backup_db "empty database"
-            elif [ "$n" -gt 0 ]; then res PASS "$d" backup_db "snapshot $snap, $n tables loaded (live: $live)"
-            else res FAIL "$d" backup_db "snapshot $snap: dump has no tables"; fi
-        else
-            res FAIL "$d" backup_db "load failed: $(head -c 200 /tmp/wp-backup-verify.err)"
-        fi
-        mariadb -e "DROP DATABASE \`$scratch\`"; rm -f "$tmp" /tmp/wp-backup-verify.err
-    done
-    if [ -z "${1:-}" ]; then
-        if out=$(restic check --read-data-subset=5% 2>&1); then res PASS host restic_check "5% data read"
-        else res FAIL host restic_check "$(tail -n 2 <<<"$out" | tr '\n' ' ')"; fi
-    fi
-    exit "$failed"
-fi
 
-if [ "${1:-}" = restore ]; then
-    [ -n "${2:-}" ] || { echo "usage: wp-backup restore <domain> [snapshot]" >&2; exit 2; }
-    site_env "$2"
-    snap=${3:-$(snapshot_for "$2")}
-    [ -n "$snap" ] || { echo "no snapshot for $2" >&2; exit 1; }
-    target="/srv/restore/$2-$(date +%Y%m%d-%H%M%S)"
-    install -d -m 0700 /srv/restore "$target"
-    restic restore "$snap" --target "$target" --include "$SITES_ROOT/$2"
-    echo "restored snapshot $snap to $target$SITES_ROOT/$2 (live site untouched)"
-    echo "dump: $target$SITES_ROOT/$2/backup/db.sql.gz"
-    exit 0
-fi
+def prune_recovery(sites, days=14):
+    if days < 1:
+        raise ValueError('Recovery retention must be at least one day')
+    cutoff = time.time() - days * 86400
+    for s in sites:
+        for path in (s['base'] / 'backup').iterdir():
+            if not re.fullmatch(r'(clone|update)-[0-9]+|db-before-restore-[0-9]+[.]sql[.]gz', path.name):
+                continue
+            if path.is_symlink() or path.stat().st_uid != os.geteuid() or path.stat().st_mtime >= cutoff:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
 
-if [ "${1:-}" = restore-db ]; then
-    [ -n "${2:-}" ] && [ -f "${3:-}" ] && [ "${4:-}" = --yes ] || {
-        echo "usage: wp-backup restore-db <domain> <dump.sql.gz> --yes   (overwrites the live DB)" >&2; exit 2; }
-    site_env "$2"
-    gzip -t "$3"
-    zcat "$3" | tail -n 1 | grep -q 'Dump completed' || { echo "dump incomplete: $3" >&2; exit 1; }
-    before="$SITES_ROOT/$2/backup/db-before-restore-$(date +%Y%m%d-%H%M%S).sql.gz"
-    mariadb-dump --single-transaction --quick --routines --triggers --events \
-        --default-character-set=utf8mb4 --databases "$DB_NAME" | gzip -c > "$before"
-    echo "current DB saved: $before"
-    zcat "$3" | strip_db | mariadb "$DB_NAME"
-    echo "loaded $3 into $DB_NAME"
-    # Object cache (Valkey) and page cache still hold the old content.
-    wp=(runuser -u "$SITE_USER" -- env HOME=/tmp "php$PHP_VERSION" /usr/local/bin/wp --path="$SITES_ROOT/$2/htdocs")
-    "${wp[@]}" cache flush || echo "warning: wp cache flush failed"
-    if "${wp[@]}" plugin is-active nginx-helper 2>/dev/null; then
-        "${wp[@]}" nginx-helper purge-all || echo "warning: nginx-helper purge-all failed"
-    fi
-    exit 0
-fi
 
-step="start"
-fail() { tg-alert "wp-backup ${1:-all} FAILED at: $step" || true; }
-trap 'rc=$?; [ $rc -eq 0 ] || fail "${ONE:-}"; exit $rc' EXIT
+def backup(sites, env, db, full=False):
+    for s in sites:
+        backup_site(s, db)
+    paths = shlex.split(env['BACKUP_PATHS']) if full else [str(sites[0]['base'])]
+    if not paths or any(not Path(p).exists() for p in paths):
+        raise ValueError('A configured backup path is missing')
+    tag = 'run-' + str(time.time_ns())
+    args = ['restic', 'backup', '--quiet', '--tag', tag, '--tag', 'nightly' if full else 'manual']
+    if not full:
+        args += ['--tag', 'site:' + sites[0]['domain']]
+    for exclude in shlex.split(env['BACKUP_EXCLUDES']):
+        args += ['--exclude', exclude]
+    result = run(args + paths, env=env, check=False, timeout=7200)
+    if result.returncode:
+        # A partial snapshot never receives the complete tag. Keep good retention points.
+        raise RuntimeError('Restic backup is incomplete or failed (exit ' + str(result.returncode) + ')')
+    snapshots = json.loads(run(['restic', 'snapshots', '--json', '--tag', tag], env=env).stdout)
+    if len(snapshots) != 1:
+        raise RuntimeError('Cannot identify the new snapshot')
+    run(['restic', 'tag', '--add', 'complete', snapshots[0]['id']], env=env)
+    if full:
+        if env.get('RESTIC_COPY_REPOSITORY'):
+            run(['restic', '--repo', env['RESTIC_COPY_REPOSITORY'], '--password-file', env['RESTIC_COPY_PASSWORD_FILE'],
+                 'copy', '--from-repo', env['RESTIC_REPOSITORY'], '--from-password-file', env['RESTIC_PASSWORD_FILE']], env=env, timeout=7200)
+        run(['restic', 'check', '--quiet'], env=env, timeout=7200)
+        run(['restic', 'forget', '--quiet', '--prune', '--tag', 'complete', '--keep-daily', env['KEEP_DAILY'],
+             '--keep-weekly', env['KEEP_WEEKLY'], '--keep-monthly', env['KEEP_MONTHLY']], env=env, timeout=7200)
+        prune_recovery(sites, int(env.get('RECOVERY_KEEP_DAYS', '14')))
+    print('PASS backup complete')
 
-ONE="${1:-}"
-exec 9>/run/wp-backup.lock
-step="lock"
-flock -w 3600 9
 
-dump_site() {  # $1 = site dir
-    local env="$1/conf/site.env" DOMAIN DB_NAME out tmp
-    DOMAIN=$(. "$env"; echo "$DOMAIN"); DB_NAME=$(. "$env"; echo "$DB_NAME")
-    step="dump $DOMAIN"
-    out="$1/backup/db.sql.gz"; tmp="$out.tmp"
-    mariadb-dump --single-transaction --quick --routines --triggers --events \
-        --default-character-set=utf8mb4 --databases "$DB_NAME" | gzip -c > "$tmp"
-    gzip -t "$tmp"
-    zcat "$tmp" | tail -n 1 | grep -q 'Dump completed'
-    mv -f "$tmp" "$out"
-    echo "dumped $DOMAIN ($DB_NAME): $(stat -c %s "$out") bytes"
-}
+def restore_files(s, env, snapshot=None, destination=None):
+    snapshot = snapshot or snapshot_for(s['domain'], env)
+    snapshots = json.loads(run(['restic', 'snapshots', '--json', snapshot], env=env).stdout)
+    if len(snapshots) != 1 or 'complete' not in snapshots[0].get('tags', []):
+        raise ValueError('Require a complete snapshot')
+    if destination is None:
+        root = Path('/srv/restore')
+        root.mkdir(mode=0o700, exist_ok=True)
+        root.chmod(0o700)
+        destination = Path(tempfile.mkdtemp(prefix=s['domain'] + '-', dir=root))
+    run(['restic', 'restore', snapshot, '--target', str(destination), '--include', str(s['base'])], env=env, timeout=7200)
+    return destination / str(s['base']).lstrip('/')
 
-excludes=()
-for e in $BACKUP_EXCLUDES; do excludes+=(--exclude "$e"); done
 
-if [ -n "$ONE" ]; then
-    dir="$SITES_ROOT/$ONE"
-    [ -f "$dir/conf/site.env" ] || { echo "unknown site: $ONE" >&2; step="unknown site"; exit 1; }
-    dump_site "$dir"
-    step="restic backup $ONE"
-    restic backup --quiet --tag manual --tag "site:$ONE" "${excludes[@]}" "$dir"
-    echo "snapshot done: $ONE"
-    exit 0
-fi
+def verify(sites, env, db):
+    for s in sites:
+        with tempfile.TemporaryDirectory(prefix='wp-verify-', dir='/srv') as temporary:
+            restored = restore_files(s, env, destination=Path(temporary))
+            manifest = json.loads((restored / 'backup/manifest.json').read_text())
+            path = restored / 'backup/db.sql.gz'
+            if sha256_file(path) != manifest['sha256']:
+                raise ValueError('Backup dump hash differs from its manifest')
+            if 'files_sha256' in manifest:
+                files_path = restored / 'backup/files.jsonl'
+                if sha256_file(files_path) != manifest['files_sha256']:
+                    raise ValueError('The file manifest hash differs')
+                with files_path.open() as stream:
+                    for line in stream:
+                        if not (restored / 'htdocs' / json.loads(line)).is_file():
+                            raise ValueError('A file is missing from the snapshot')
+            else:
+                for relative in manifest.get('files', []):
+                    if not (restored / 'htdocs' / relative).is_file():
+                        raise ValueError('A file is missing from the snapshot')
+            with db.scratch() as (name, password):
+                load(path, name, name, password)
+                tables = db.tables(name)
+                if tables != manifest['tables']:
+                    raise ValueError('Snapshot table list differs from its manifest')
+                if manifest['installed']:
+                    require_wordpress_tables(tables, manifest['prefix'])
+            print('PASS ' + s['domain'] + ' backup_files backup_db')
+    run(['restic', 'check', '--read-data-subset=5%'], env=env, timeout=7200)
 
-for env in "$SITES_ROOT"/*/conf/site.env; do
-    [ -e "$env" ] || continue
-    dump_site "$(dirname "$(dirname "$env")")"
-done
 
-paths=()
-for p in $BACKUP_PATHS; do [ -e "$p" ] && paths+=("$p"); done
-step="restic backup"
-rc=0
-restic backup --quiet --tag nightly "${excludes[@]}" "${paths[@]}" || rc=$?
-# 3 = snapshot made, some files unreadable: alert, keep going.
-if [ $rc -eq 3 ]; then tg-alert "wp-backup: snapshot incomplete (some files unreadable)"; elif [ $rc -ne 0 ]; then exit $rc; fi
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', nargs='?', default='')
+    parser.add_argument('arguments', nargs='*')
+    parser.add_argument('--yes', action='store_true')
+    parser.add_argument('--activate', action='store_true')
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        parser.error('Run as root')
+    os.umask(0o077)
+    env = {**os.environ, **read_env('/etc/restic/env')}
+    if env.get('BACKUP_REQUIRE_MOUNT', 'true') == 'true' and not os.path.ismount(env['BACKUP_MOUNT']):
+        raise RuntimeError('The backup disk is not mounted')
+    with operation_lock():
+        db = Database()
+        if args.action == 'restore':
+            if not 1 <= len(args.arguments) <= 2:
+                parser.error('restore <domain> [snapshot]')
+            s = site(args.arguments[0])
+            restored = restore_files(s, env, args.arguments[1] if len(args.arguments) == 2 else None)
+            print('restored: ' + str(restored))
+            print('dump: ' + str(restored / 'backup/db.sql.gz'))
+        elif args.action == 'restore-db':
+            if len(args.arguments) != 2 or not args.yes:
+                parser.error('restore-db <domain> <dump.sql.gz> --yes')
+            s = site(args.arguments[0])
+            path = Path(args.arguments[1]).resolve(strict=True)
+            manifest = json.loads((path.parent / 'manifest.json').read_text())
+            if sha256_file(path) != manifest['sha256']:
+                raise ValueError('Dump hash differs from its manifest')
+            restore_database(s, path, db, manifest)
+            print('PASS database restored')
+        elif args.action == 'update':
+            if len(args.arguments) != 1 or not args.yes:
+                parser.error('update <domain> --yes')
+            s = site(args.arguments[0])
+            backup([s], env, db)
+            update_site(s, db)
+        elif args.action == 'remove':
+            if len(args.arguments) != 1 or not args.yes:
+                parser.error('remove <domain> --yes')
+            s = site(args.arguments[0])
+            backup([s], env, db)
+            remove_site(s, db, env.get('REMOVED_DIR', '/mnt/backups/removed'))
+        elif args.action == 'clone':
+            if len(args.arguments) != 2:
+                parser.error('clone <source> <target> [--yes] [--activate]')
+            clone(site(args.arguments[0]), site(args.arguments[1]), db, confirm=args.yes, activate=args.activate)
+        elif args.action == 'verify':
+            if len(args.arguments) > 1:
+                parser.error('verify [domain]')
+            sites = [site(args.arguments[0])] if args.arguments else [site(p.name) for p in SITES.iterdir() if (p / 'conf/site.env').exists()]
+            if not sites:
+                raise ValueError('No sites selected')
+            verify(sites, env, db)
+        else:
+            if args.arguments:
+                parser.error('Unexpected arguments')
+            sites = [site(args.action)] if args.action else [site(p.name) for p in SITES.iterdir() if (p / 'conf/site.env').exists()]
+            if not sites:
+                raise ValueError('No sites selected')
+            backup(sites, env, db, full=not args.action)
 
-step="restic forget/prune"
-restic forget --quiet --prune --keep-daily "$KEEP_DAILY" --keep-weekly "$KEEP_WEEKLY" --keep-monthly "$KEEP_MONTHLY"
-step="restic check"
-restic check --quiet
-echo "nightly backup done"
+
+if __name__ == '__main__':
+    def interrupted(signum, frame):
+        raise InterruptedError('Operation interrupted')
+    signal.signal(signal.SIGTERM, interrupted)
+    try:
+        main()
+    except (Exception, KeyboardInterrupt) as exc:
+        print('FAIL wp-backup: ' + str(exc), file=sys.stderr)
+        run(['tg-alert', 'wp-backup failed; inspect the service log'], check=False)
+        sys.exit(1)

@@ -1,118 +1,22 @@
 ---
-# Clone site A to site B (files + DB, URLs rewritten with wp search-replace).
-#   ansible-playbook playbooks/site-clone.yml --limit wp01 -e clone_from=<A> -e clone_to=<B>
-# B must already exist (in wp_sites and converged: site.yml -e wp_site_only=<B>);
-# scripts/site clone does both. B keeps its own wp-config.php (DB, salts, cache
-# credentials); only table_prefix is copied. B's files and tables are overwritten:
-# when B already has WordPress, add -e confirm=<B>.
-- name: Clone one site
+- name: Clone one WordPress site
   hosts: wp
   become: true
   gather_facts: false
-  vars:
-    clone_a: "{{ clone_from | default('') }}"
-    clone_b: "{{ clone_to | default('') }}"
-    clone_wpcli: "{{ php_wpcli_path | default('/usr/local/bin/wp') }}"
+  pre_tasks:
+    - name: Check test isolation
+      ansible.builtin.import_tasks: tasks/test-guard.yml
   tasks:
-    - name: Check arguments
+    - name: Validate clone arguments
       ansible.builtin.assert:
         that:
-          - clone_a | length > 0
-          - clone_b | length > 0
-          - clone_a != clone_b
-        fail_msg: "Usage: -e clone_from=<domain> -e clone_to=<domain>"
-        quiet: true
-
-    - name: Read site facts
-      ansible.builtin.slurp:
-        src: "/srv/sites/{{ item }}/conf/site.env"
-      loop: ["{{ clone_a }}", "{{ clone_b }}"]
-      register: clone_env_raw
-
-    - name: Parse site facts
-      ansible.builtin.set_fact:
-        clone_src: "{{ dict(clone_env_raw.results[0].content | b64decode | regex_findall('(?m)^([A-Z_]+)=\"?([^\"\\n]*)\"?$')) }}"
-        clone_dst: "{{ dict(clone_env_raw.results[1].content | b64decode | regex_findall('(?m)^([A-Z_]+)=\"?([^\"\\n]*)\"?$')) }}"
-
-    - name: Check whether target has WordPress
-      ansible.builtin.stat:
-        path: "/srv/sites/{{ clone_b }}/htdocs/wp-includes/version.php"
-      register: clone_dst_wp
-
-    - name: Refuse to overwrite an installed site without confirm
-      ansible.builtin.assert:
-        that:
-          - not clone_dst_wp.stat.exists or (confirm | default('')) == clone_b
-        fail_msg: "{{ clone_b }} already has WordPress. Add -e confirm={{ clone_b }} to overwrite it."
-        quiet: true
-
-    - name: Install rsync
-      ansible.builtin.apt:
-        name: rsync
-        state: present
-        cache_valid_time: 3600
-
-    - name: Copy files
-      ansible.builtin.command:
-        argv:
-          - rsync
-          # -a without -o/-g: files must not keep A's owner (site-fix-perms sets B's).
-          - -rlpt
-          - --delete
-          - --exclude=/wp-config.php
-          - --exclude=/.git/
-          - --exclude=/wp-content/cache/
-          - "/srv/sites/{{ clone_a }}/htdocs/"
-          - "/srv/sites/{{ clone_b }}/htdocs/"
-      changed_when: true
-
-    - name: Fix owner and modes of target
-      ansible.builtin.command:
-        argv: [/usr/local/sbin/site-fix-perms, "{{ clone_b }}"]
-      changed_when: true
-
-    - name: Copy database
-      ansible.builtin.shell:
-        cmd: >-
-          set -o pipefail;
-          mariadb-dump --single-transaction --quick --routines --triggers --events
-          --default-character-set=utf8mb4 {{ clone_src.DB_NAME }}
-          | mariadb --default-character-set=utf8mb4 {{ clone_dst.DB_NAME }}
-        executable: /bin/bash
-      changed_when: true
-
-    - name: Read source table prefix
+          - clone_from | default('') | length > 0
+          - clone_to | default('') | length > 0
+          - clone_from != clone_to
+    - name: Clone with a rollback copy
       ansible.builtin.command:
         argv: >-
-          {{ ['runuser', '-u', clone_src.SITE_USER, '--', 'env', 'HOME=/tmp',
-              'php' ~ clone_src.PHP_VERSION, clone_wpcli, '--path=/srv/sites/' ~ clone_a ~ '/htdocs',
-              '--skip-plugins', '--skip-themes', 'config', 'get', 'table_prefix'] }}
-      register: clone_prefix
-      changed_when: false
-
-    - name: Run wp-cli on target as owner
-      ansible.builtin.command:
-        argv: >-
-          {{ ['runuser', '-u', clone_dst.SITE_USER, '--', 'env', 'HOME=/tmp',
-              'php' ~ clone_dst.PHP_VERSION, clone_wpcli, '--path=/srv/sites/' ~ clone_b ~ '/htdocs',
-              '--skip-plugins', '--skip-themes'] + item }}
-      loop:
-        - [config, set, table_prefix, "{{ clone_prefix.stdout | trim }}"]
-        - [search-replace, "//{{ clone_a }}", "//{{ clone_b }}", --all-tables-with-prefix, --skip-columns=guid, --report-changed-only]
-        # JSON-escaped URLs (block editor, some page builders).
-        - [search-replace, "\\/\\/{{ clone_a }}", "\\/\\/{{ clone_b }}", --all-tables-with-prefix, --skip-columns=guid, --report-changed-only]
-        - [cache, flush]
-      loop_control:
-        label: "{{ item[:2] | join(' ') }}"
+          {{ ['/usr/local/sbin/wp-backup', 'clone', clone_from, clone_to]
+             + (['--yes'] if confirm | default('') == clone_to else [])
+             + (['--activate'] if clone_activate | default(false) | bool else []) }}
       changed_when: true
-
-    - name: Refresh git baseline of target
-      ansible.builtin.command:
-        argv: [/usr/local/sbin/wp-git-commit, "{{ clone_b }}", "clone of {{ clone_a }}"]
-      changed_when: true
-
-    - name: Done
-      ansible.builtin.debug:
-        msg: >-
-          {{ clone_a }} cloned to {{ clone_b }}. Admin users were copied too:
-          run "wp-monitor --ack {{ clone_b }}" after checking them.

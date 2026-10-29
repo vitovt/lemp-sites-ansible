@@ -14,8 +14,8 @@
     user: "{{ site_cfg.user }}-php"
     minute: "{{ site_cron_minute }}"
     job: >-
-      cd {{ site_cfg.path }}/htdocs &&
-      /usr/bin/php{{ site_cfg.php_version }} {{ php_wpcli_path }} cron event run --due-now --quiet
+      test ! -f {{ site_cfg.path }}/conf/maintenance && cd {{ site_cfg.path }}/htdocs &&
+      /usr/bin/flock -s -n /run/lock/wp-hosting.lock /usr/bin/php{{ site_cfg.php_version }} {{ php_wpcli_path }} cron event run --due-now --quiet
       >> {{ site_cfg.path }}/logs/cron.log 2>&1
 
 - name: Install site logrotate config

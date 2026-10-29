@@ -10,3 +10,44 @@
   loop:
     - wp-git-commit
     - site-fix-perms
+
+- name: Create the trusted Python library directory
+  ansible.builtin.file:
+    path: /usr/local/lib/wp-hosting
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the hosting operations library
+  ansible.builtin.copy:
+    src: wp_hosting.py
+    dest: /usr/local/lib/wp-hosting/wp_hosting.py
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the static config reader
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../library/hosting_config.py"
+    dest: /usr/local/lib/wp-hosting/hosting_config.py
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create the shared operation lock
+  ansible.builtin.copy:
+    content: ""
+    dest: /run/lock/wp-hosting.lock
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+- name: Keep the lock available after reboot
+  ansible.builtin.copy:
+    content: "f /run/lock/wp-hosting.lock 0644 root root -\n"
+    dest: /etc/tmpfiles.d/wp-hosting.conf
+    owner: root
+    group: root
+    mode: "0644"

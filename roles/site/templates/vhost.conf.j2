@@ -40,7 +40,10 @@ server {
 
     root {{ site_cfg.path }}/htdocs;
     disable_symlinks on;
-    if (-f {{ site_cfg.path }}/conf/maintenance) { return 503; }
+    set $wp_block "";
+    if (-f {{ site_cfg.path }}/conf/maintenance) { set $wp_block "1"; }
+    if ($wp_internal_health = 1) { set $wp_block ""; }
+    if ($wp_block = "1") { return 503; }
 {% if site_cfg.staging %}
     add_header X-Robots-Tag "noindex, nofollow" always;
 {% endif %}

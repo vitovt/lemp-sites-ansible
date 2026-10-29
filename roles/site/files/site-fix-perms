@@ -1,27 +1,59 @@
-#!/bin/sh
-# Reset owner and modes of a site's htdocs (group model, no ACLs).
-# Usage (as root): site-fix-perms <domain>
-# Code: <user>:<user> dirs 2750, files 0640 (PHP reads, cannot write).
-# PHP-writable dirs: dirs 2770, files 0660.
-set -eu
-domain="${1:?usage: site-fix-perms <domain>}"
-dir="/srv/sites/${domain}/htdocs"
-[ -d "$dir" ] || { echo "no such site: $domain" >&2; exit 1; }
-# Owner from site.env (written by Ansible), not from the files: after a copy
-# (rsync -a, tar) they may belong to another site.
-env="/srv/sites/${domain}/conf/site.env"
-[ -r "$env" ] || { echo "no $env" >&2; exit 1; }
-user="$(sed -n 's/^SITE_USER="\{0,1\}\([a-z][a-z0-9_]*\)"\{0,1\}$/\1/p' "$env")"
-[ -n "$user" ] && [ "$user" != root ] || { echo "refusing: no SITE_USER in $env" >&2; exit 1; }
-getent passwd "$user" >/dev/null || { echo "no such user: $user" >&2; exit 1; }
-writable="${SITE_WRITABLE_DIRS:-wp-content/uploads wp-content/cache wp-content/upgrade}"
+#!/usr/bin/env python3
+"""Check or repair site permissions with directory descriptors. Refuse links."""
+import argparse
+import os
+import pwd
+import stat
+import sys
+sys.path.insert(0, '/usr/local/lib/wp-hosting')
+from wp_hosting import site
 
-chown -R -h "$user:$user" "$dir"
-find "$dir" -type d -exec chmod 2750 {} +
-find "$dir" -type f -exec chmod 0640 {} +
-for w in $writable; do
-    [ -d "$dir/$w" ] || continue
-    find "$dir/$w" -type d -exec chmod 2770 {} +
-    find "$dir/$w" -type f -exec chmod 0660 {} +
-done
-echo "fixed: $dir (owner $user)"
+p = argparse.ArgumentParser(description=__doc__)
+p.add_argument('domain')
+p.add_argument('--check', action='store_true')
+a = p.parse_args()
+s = site(a.domain)
+owner = pwd.getpwnam(s['SITE_USER'])
+root = s['base'] / 'htdocs'
+if root.is_symlink():
+    raise SystemExit('The document root must not be a symlink')
+changed = 0
+
+
+def apply(fd, relative):
+    global changed
+    info = os.fstat(fd)
+    if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+        raise SystemExit('Refusing a non-regular file: ' + relative)
+    if stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
+        raise SystemExit('Refusing a hard link: ' + relative)
+    writable = any(relative == f'wp-content/{d}' or relative.startswith(f'wp-content/{d}/') for d in ['uploads', 'cache', 'upgrade'])
+    mode = (0o2770 if writable else 0o2750) if stat.S_ISDIR(info.st_mode) else (0o660 if writable else 0o640)
+    if a.check and (relative == '.git' or relative.startswith('.git/')):
+        if info.st_uid == owner.pw_uid and not info.st_mode & 0o027:
+            return
+    if info.st_uid != owner.pw_uid or info.st_gid != owner.pw_gid or info.st_mode & 0o7777 != mode:
+        changed += 1
+        if not a.check:
+            os.fchown(fd, owner.pw_uid, owner.pw_gid)
+            os.fchmod(fd, mode)
+        elif changed <= 10:
+            print('unsafe permissions: ' + relative)
+
+
+# fwalk does not follow directory symlinks. O_NOFOLLOW pins each file inode.
+# This prevents a PHP process from redirecting root chmod through a writable path.
+for directory, directories, files, directory_fd in os.fwalk(root, follow_symlinks=False):
+    relative = os.path.relpath(directory, root)
+    apply(directory_fd, relative)
+    for name in directories:
+        if stat.S_ISLNK(os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode):
+            raise SystemExit('Refusing a directory symlink: ' + name)
+    for name in files:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+        try:
+            apply(fd, os.path.relpath(os.path.join(directory, name), root))
+        finally:
+            os.close(fd)
+print(f'{"unsafe" if a.check else "fixed"}: {changed}')
+sys.exit(1 if a.check and changed else 0)

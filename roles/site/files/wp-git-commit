@@ -1,23 +1,34 @@
-#!/bin/sh
-# Snapshot a site's htdocs into a local git repo (no remote).
-# Usage (as root): wp-git-commit <domain> [message]
-# wp_monitor reads "git status" to find changed code.
-set -eu
-domain="${1:?usage: wp-git-commit <domain> [message]}"
-msg="${2:-snapshot $(date -Iseconds)}"
-dir="/srv/sites/${domain}/htdocs"
-[ -d "$dir" ] || { echo "no such site: $domain" >&2; exit 1; }
-owner="$(stat -c %U "$dir")"
-run() { runuser -u "$owner" -- git -C "$dir" "$@"; }
-if [ ! -d "$dir/.git" ]; then
-    run init -q
-    printf '%s\n' wp-content/uploads/ wp-content/cache/ wp-content/upgrade/ \
-        | runuser -u "$owner" -- tee -a "$dir/.git/info/exclude" >/dev/null
-fi
-run add -A
-if run diff --cached --quiet; then
-    echo "no changes"
-    exit 0
-fi
-run -c user.name=wp-git-commit -c user.email=root@localhost commit -q -m "$msg"
-run log -1 --oneline
+#!/usr/bin/env python3
+"""Accept a reviewed code snapshot. Execute Git as the declared site owner."""
+import argparse
+import os
+import subprocess
+import sys
+sys.path.insert(0, '/usr/local/lib/wp-hosting')
+from wp_hosting import run, site
+
+p = argparse.ArgumentParser(description=__doc__)
+p.add_argument('domain')
+p.add_argument('message', nargs='?', default='reviewed snapshot')
+a = p.parse_args()
+s = site(a.domain)
+os.umask(0o027)
+root = s['base'] / 'htdocs'
+
+def git(*args):
+    return run(['runuser', '-u', s['SITE_USER'], '--', 'git', '-C', str(root), *args])
+
+if not (root / '.git').exists():
+    git('init', '-q')
+    # The owner writes its own exclude file; root must not follow site links.
+    run(['runuser', '-u', s['SITE_USER'], '--', 'tee', str(root / '.git/info/exclude')],
+        data=b'wp-content/uploads/\nwp-content/cache/\nwp-content/upgrade/\n')
+git('add', '-A')
+result = run(['runuser', '-u', s['SITE_USER'], '--', 'git', '-C', str(root), 'diff', '--cached', '--quiet'], check=False)
+if result.returncode == 0:
+    print('no changes')
+elif result.returncode == 1:
+    git('-c', 'user.name=wp-git-commit', '-c', 'user.email=root@localhost', 'commit', '-q', '-m', a.message)
+    print(git('log', '-1', '--oneline').stdout.decode().strip())
+else:
+    raise SystemExit('Cannot inspect the Git index')
