@@ -1,6 +1,12 @@
 ---
 # deb822 source with a per-repo signed-by key (no global apt-key).
 # The module fetches the key from php_sury_key_url into /etc/apt/keyrings/.
+- name: Install python3-debian (needed by deb822_repository)
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+    cache_valid_time: 3600
+
 - name: Add Sury repository (deb822)
   ansible.builtin.deb822_repository:
     name: sury-php
