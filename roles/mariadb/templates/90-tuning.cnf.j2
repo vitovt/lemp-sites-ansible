@@ -4,6 +4,7 @@
 [mariadbd]
 bind-address            = {{ mariadb_bind_address }}
 skip-name-resolve
+skip-networking
 character-set-server    = utf8mb4
 collation-server        = utf8mb4_unicode_ci
 max_connections         = {{ mariadb_max_connections }}

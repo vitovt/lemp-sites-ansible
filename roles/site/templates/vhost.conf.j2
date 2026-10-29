@@ -33,6 +33,11 @@ server {
 {% endif %}
 
     root {{ site_cfg.path }}/htdocs;
+    disable_symlinks on;
+    if (-f {{ site_cfg.path }}/conf/maintenance) { return 503; }
+{% if site_cfg.staging %}
+    add_header X-Robots-Tag "noindex, nofollow" always;
+{% endif %}
     index index.php;
     access_log {{ site_cfg.path }}/logs/access.log main;
     error_log {{ site_cfg.path }}/logs/error.log warn;

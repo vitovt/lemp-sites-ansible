@@ -1,0 +1,6 @@
+---
+# Set false only when the parent host applies equivalent rules.
+firewall_manage: true
+firewall_ssh_ports: [22]
+firewall_smtp_enabled: false
+firewall_smtp_ports: [25, 465, 587, 2525]

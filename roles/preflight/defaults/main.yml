@@ -34,3 +34,5 @@ preflight_site_keys:
   - wp_locale
   - wp_version
   - monitor_content_max
+  - staging
+  - smtp

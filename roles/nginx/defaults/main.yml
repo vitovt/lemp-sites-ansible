@@ -41,7 +41,9 @@ nginx_cloudflare_ipv6_fallback:
 # (e.g. the IPv4 proxy on the Proxmox host). Set in group_vars.
 nginx_trusted_proxies: []
 # Only Cloudflare (and trusted proxies) may connect. Others get 444.
-nginx_cloudflare_only: true
+nginx_access_mode: cloudflare
+nginx_cloudflare_only: "{{ nginx_access_mode != 'direct' }}"
+nginx_real_ip_header: "{{ 'X-Forwarded-For' if nginx_access_mode == 'proxy' else 'CF-Connecting-IP' }}"
 
 # FastCGI cache (guests only; see snippets/fastcgi-cache-skip).
 nginx_fastcgi_cache_path: /var/cache/nginx/fastcgi

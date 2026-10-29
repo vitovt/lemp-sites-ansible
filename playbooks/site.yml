@@ -7,6 +7,7 @@
     - { role: common, tags: [common] }
     - { role: telegram_alert, tags: [telegram_alert] }
     - { role: nginx, tags: [nginx] }
+    - { role: firewall, tags: [firewall] }
     - { role: php, tags: [php] }
     - { role: mariadb, tags: [mariadb] }
     - { role: valkey, tags: [valkey] }

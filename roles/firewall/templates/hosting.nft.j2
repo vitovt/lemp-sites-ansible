@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+# This file owns one table. It does not flush other firewall tables.
+add table inet wp_hosting
+flush table inet wp_hosting
+table inet wp_hosting {
+    chain input {
+        type filter hook input priority 0; policy drop;
+        iifname "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+        meta l4proto { icmp, ipv6-icmp } accept
+        tcp dport { {{ firewall_ssh_ports | join(', ') }} } accept
+{% if certbot_method | default('dns-cloudflare') == 'webroot' %}
+        tcp dport 80 accept
+{% endif %}
+{% if nginx_access_mode == 'direct' %}
+        tcp dport { 80, 443 } accept
+{% else %}
+{% for net in (nginx_trusted_proxies if nginx_access_mode == 'proxy' else nginx_cf_ranges) %}
+        {{ 'ip6' if ':' in net else 'ip' }} saddr {{ net }} tcp dport { 80, 443 } accept
+{% endfor %}
+{% endif %}
+    }
+    chain output {
+        type filter hook output priority 0; policy accept;
+{% if not firewall_smtp_enabled | bool %}
+        tcp dport { {{ firewall_smtp_ports | join(', ') }} } reject
+{% endif %}
+    }
+}

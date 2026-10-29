@@ -1,0 +1,44 @@
+---
+- name: Configure the host firewall
+  when: firewall_manage | bool
+  block:
+    - name: Install nftables
+      ansible.builtin.apt:
+        name: nftables
+        state: present
+    - name: Install hosting firewall rules
+      ansible.builtin.template:
+        src: hosting.nft.j2
+        dest: /etc/wp-hosting.nft
+        owner: root
+        group: root
+        mode: "0600"
+        validate: /usr/sbin/nft -c -f %s
+      notify: Apply hosting firewall
+    - name: Install the firewall service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/wp-firewall.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=WordPress host firewall
+          Before=nginx.service
+          After=network-pre.target
+          Wants=network-pre.target
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/sbin/nft -f /etc/wp-hosting.nft
+          ExecReload=/usr/sbin/nft -f /etc/wp-hosting.nft
+          [Install]
+          WantedBy=multi-user.target
+      register: firewall_unit
+      notify: Apply hosting firewall
+    - name: Enable the firewall
+      ansible.builtin.systemd_service:
+        name: wp-firewall.service
+        daemon_reload: "{{ firewall_unit is changed }}"
+        enabled: true
+        state: started

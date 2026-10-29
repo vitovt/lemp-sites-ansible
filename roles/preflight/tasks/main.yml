@@ -28,6 +28,12 @@
       {%-         set _ = e.append(domain ~ ': bad user "' ~ user ~ '" ([a-z][a-z0-9_]*, max ' ~ site_user_max_len | default(28) ~ ')') -%}
       {%-       endif -%}
       {%-       if db is not match('^[a-z][a-z0-9_]*$') or db | length > 64 -%}{%- set _ = e.append(domain ~ ': bad db_name "' ~ db ~ '"') -%}{%- endif -%}
+      {%-       if user in ['root', 'admin', 'default', 'mysql', 'valkey', 'nobody', 'daemon'] -%}{%- set _ = e.append(domain ~ ': reserved user ' ~ user) -%}{%- endif -%}
+      {%-       if db in ['mysql', 'sys', 'information_schema', 'performance_schema', 'test', 'root'] -%}{%- set _ = e.append(domain ~ ': reserved database ' ~ db) -%}{%- endif -%}
+      {%-       if (cfg.php_version | default(php_default_version) | string) not in (php_supported_versions | default(['8.3', '8.4', '8.5'])) -%}{%- set _ = e.append(domain ~ ': unsupported PHP version') -%}{%- endif -%}
+      {%-       for k in ['pm_max_children', 'pm_max_requests', 'monitor_content_max'] -%}
+      {%-         if k in cfg and (cfg[k] is not integer or cfg[k] < 0 or (k == 'pm_max_children' and cfg[k] == 0)) -%}{%- set _ = e.append(domain ~ ': invalid ' ~ k) -%}{%- endif -%}
+      {%-       endfor -%}
       {%-       if user in users -%}{%- set _ = e.append(domain ~ ': user "' ~ user ~ '" used twice') -%}{%- endif -%}
       {%-       if db in dbs -%}{%- set _ = e.append(domain ~ ': db_name "' ~ db ~ '" used twice') -%}{%- endif -%}
       {%-       set _ = users.append(user) -%}
@@ -53,12 +59,39 @@
       {%- endif -%}
       {{ e }}
 
+- name: Reject invalid site settings before host checks
+  ansible.builtin.assert:
+    that: preflight_site_errors | length == 0
+    fail_msg: "{{ preflight_site_errors }}"
+
+- name: Check the network policy
+  ansible.builtin.assert:
+    that:
+      - nginx_access_mode | default('cloudflare') in ['cloudflare', 'proxy', 'direct']
+      - nginx_access_mode | default('cloudflare') != 'proxy' or nginx_trusted_proxies | default([]) | length > 0
+      - site_root | default('/srv/sites') == '/srv/sites'
+    fail_msg: "Select cloudflare, proxy (with trusted peers), or direct. The site root must be /srv/sites."
+
+- name: Validate trusted proxy networks
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - "import ipaddress,sys; [ipaddress.ip_network(x, strict=False) for x in sys.argv[1:]]"
+      - "{{ item }}"
+  loop: "{{ nginx_trusted_proxies | default([]) }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+
 - name: Read existing sites on the host
   ansible.builtin.shell:
     cmd: >-
       set -o pipefail;
       for f in {{ site_root | default('/srv/sites') }}/*/conf/site.env; do
       [ -e "$f" ] && grep -H -E '^(DOMAIN|SITE_USER|DB_NAME)=' "$f"; done; true
+    executable: /bin/bash
   register: preflight_env
   changed_when: false
   check_mode: false

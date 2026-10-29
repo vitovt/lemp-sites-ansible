@@ -12,3 +12,8 @@
 # Local Python virtualenv
 /.venv/
 __pycache__/
+
+# Temporary SSH credentials and isolated test output.
+/id_ed25519_codex*
+/test-results/
+/.pytest_cache/

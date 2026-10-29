@@ -1,0 +1,5 @@
+---
+- name: Apply hosting firewall
+  ansible.builtin.systemd_service:
+    name: wp-firewall.service
+    state: reloaded
