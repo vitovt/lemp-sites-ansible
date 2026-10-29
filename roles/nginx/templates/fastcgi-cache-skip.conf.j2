@@ -3,11 +3,16 @@
 # MIT License, Copyright (c) Roots Software LLC.
 map $request_uri $wp_skip_cache_uri {
     default 0;
-    ~*/wp-admin/|/wp-json/|/xmlrpc.php|wp-.*.php|/feed/|index.php|sitemap(_index)?.xml 1;
+    ~*/wp-admin/|/wp-json/|/xmlrpc.php|wp-.*.php|/feed/|/(cart|checkout|my-account)(/|$)|index.php|sitemap(_index)?.xml 1;
 }
+# Unknown session cookies are private. Cache only requests with no cookies.
 map $http_cookie $wp_skip_cache_cookie {
-    default 0;
-    ~*comment_author|wordpress_[a-f0-9]+|wp-postpass|wordpress_no_cache|wordpress_logged_in|woocommerce_items_in_cart|woocommerce_cart_hash|wp_woocommerce_session_ 1;
+    default 1;
+    "" 0;
+}
+map $http_authorization $wp_skip_cache_auth {
+    default 1;
+    "" 0;
 }
 map $request_method $wp_skip_cache_method {
     default 1;
@@ -18,7 +23,7 @@ map $query_string $wp_skip_cache_query {
     default 1;
     "" 0;
 }
-map "$wp_skip_cache_uri$wp_skip_cache_cookie$wp_skip_cache_method$wp_skip_cache_query" $wp_skip_cache {
+map "$wp_skip_cache_uri$wp_skip_cache_cookie$wp_skip_cache_method$wp_skip_cache_query$wp_skip_cache_auth" $wp_skip_cache {
     default 1;
-    0000 0;
+    00000 0;
 }

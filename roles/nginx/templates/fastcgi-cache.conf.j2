@@ -7,4 +7,4 @@ fastcgi_cache_path {{ nginx_fastcgi_cache_path }} levels=1:2 keys_zone=WORDPRESS
 fastcgi_cache_key "$scheme$request_method$host$request_uri";
 fastcgi_cache_use_stale error timeout updating invalid_header http_500 http_503;
 fastcgi_cache_lock on;
-fastcgi_ignore_headers Cache-Control Expires Set-Cookie;
+# Respect Cache-Control, Expires and Set-Cookie from PHP.
