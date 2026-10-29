@@ -1,0 +1,114 @@
+---
+# Read-only verification of every host and site. Changes nothing.
+#   ansible-playbook playbooks/verify.yml [--limit wp01] [-e wp_site_only=<domain>]
+# 1. wp-monitor --check: the same checks as the nightly cron (one implementation, on
+#    the server: services, disk, DB, HTTP, FPM, cert, Valkey, checksums, stray PHP,
+#    git, administrators, content spike). No alert, no baseline written.
+# 2. Server vs inventory (only Ansible knows the inventory): DB user grants, FPM
+#    pools, enabled vhosts, site directories.
+# Prints PASS/FAIL/SKIP lines; the host fails when any line is FAIL.
+- name: Verify hosts and sites
+  hosts: wp
+  become: true
+  gather_facts: false
+  vars:
+    verify_only: "{{ wp_site_only | default('') }}"
+    verify_socket: "{{ mariadb_socket | default('/run/mysqld/mysqld.sock') }}"
+    # Same derivation as roles/site/tasks/one-site.yml.
+    verify_sites: >-
+      {%- set out = [] -%}
+      {%- for d, v in (wp_sites | default({})).items() -%}
+      {%-   set v = v | default({}, true) -%}
+      {%-   set _ = out.append({'domain': d,
+              'user': v.user | default(d | regex_replace('[.-]', '_')),
+              'db': v.db_name | default(d | regex_replace('[.-]', '_')),
+              'php': (v.php_version | default(php_default_version | default('8.3'))) | string}) -%}
+      {%- endfor -%}
+      {{ out }}
+  tasks:
+    - name: Run wp-monitor --check
+      ansible.builtin.command:
+        argv: "{{ [wp_monitor_bin | default('/usr/local/sbin/wp-monitor'), '--check'] + ([verify_only] if verify_only else []) }}"
+      register: verify_monitor
+      changed_when: false
+      failed_when: verify_monitor.rc > 1
+
+    - name: Read DB grants
+      ansible.builtin.command:
+        argv: [mariadb, "--socket={{ verify_socket }}", -NBre, "SHOW GRANTS FOR '{{ item.db }}'@'localhost'"]
+      loop: "{{ verify_sites }}"
+      loop_control:
+        label: "{{ item.domain }}"
+      register: verify_grants
+      changed_when: false
+      failed_when: false
+
+    - name: Read site DB users on the server
+      ansible.builtin.command:
+        argv:
+          - mariadb
+          - "--socket={{ verify_socket }}"
+          - -NBe
+          - >-
+            SELECT CONCAT(User, '@', Host) FROM mysql.user
+            WHERE User NOT IN ('root', 'mysql', 'mariadb.sys', 'healthcheck', '')
+      register: verify_dbusers
+      changed_when: false
+
+    - name: Find FPM pools, vhosts, site directories
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          cd /etc/php && ls -1 */fpm/pool.d/*.conf 2>/dev/null | grep -v '/www\.conf$' | sed 's|/fpm/pool.d/|/|; s|\.conf$||' | sed 's/^/pool /' || true
+          ls -1 /etc/nginx/sites-enabled/ 2>/dev/null | grep -v '^00-default\.conf$' | sed 's|\.conf$||; s/^/vhost /' || true
+          find /srv/sites -mindepth 1 -maxdepth 1 -type d ! -name lost+found -printf 'dir %f\n'
+        executable: /bin/bash
+      register: verify_found
+      changed_when: false
+
+    - name: Compare with the inventory
+      ansible.builtin.set_fact:
+        verify_lines: >-
+          {%- set out = [] -%}
+          {%- set found = verify_found.stdout_lines -%}
+          {%- for s in verify_sites -%}
+          {%-   set g = verify_grants.results[loop.index0] -%}
+          {%-   set lines = g.stdout_lines | map('regex_replace', " IDENTIFIED BY .*$", '') | list -%}
+          {%-   set want = 'GRANT ALL PRIVILEGES ON `' ~ (s.db | replace('_', '\\_')) ~ '`.* TO' -%}
+          {%-   set all = lines | select('search', '^' ~ (want | regex_escape)) | list -%}
+          {%-   set other = lines | reject('search', '^GRANT USAGE ON [*][.][*] TO') | reject('in', all) | list -%}
+          {%-   if g.rc != 0 -%}{%- set _ = out.append('FAIL ' ~ s.domain ~ ' db_grants: no DB user ' ~ s.db ~ '@localhost') -%}
+          {%-   elif not all or other -%}
+            {%- set _ = out.append('FAIL ' ~ s.domain ~ ' db_grants: expected only ' ~ want ~ ', found: ' ~ (lines | join(' ; '))) -%}
+          {%-   else -%}{%- set _ = out.append('PASS ' ~ s.domain ~ ' db_grants') -%}{%- endif -%}
+          {%-   set p = 'pool ' ~ s.php ~ '/' ~ s.user -%}
+          {%-   set _ = out.append(('PASS ' if p in found else 'FAIL ') ~ s.domain ~ ' fpm_pool_conf'
+                                   ~ ('' if p in found else ': missing /etc/php/' ~ s.php ~ '/fpm/pool.d/' ~ s.user ~ '.conf')) -%}
+          {%-   set _ = out.append(('PASS ' if ('vhost ' ~ s.domain) in found else 'FAIL ') ~ s.domain ~ ' vhost'
+                                   ~ ('' if ('vhost ' ~ s.domain) in found else ': not in sites-enabled')) -%}
+          {%- endfor -%}
+          {%- set want_pools = verify_sites | map(attribute='php') | zip(verify_sites | map(attribute='user')) | map('join', '/') | list -%}
+          {%- set want_db = verify_sites | map(attribute='db') | map('regex_replace', '$', '@localhost') | list -%}
+          {%- set domains = verify_sites | map(attribute='domain') | list -%}
+          {%- set extra = (found | select('match', '^pool ') | map('regex_replace', '^pool ', '') | reject('in', want_pools)
+                           | map('regex_replace', '^', 'pool ') | list)
+                        + (found | select('match', '^vhost ') | map('regex_replace', '^vhost ', '') | reject('in', domains)
+                           | map('regex_replace', '^', 'vhost ') | list)
+                        + (found | select('match', '^dir ') | map('regex_replace', '^dir ', '') | reject('in', domains)
+                           | map('regex_replace', '^', 'dir /srv/sites/') | list)
+                        + (verify_dbusers.stdout_lines | reject('in', want_db) | map('regex_replace', '^', 'db user ') | list) -%}
+          {%- set _ = out.append(('FAIL host not_in_inventory: ' ~ (extra | join(', '))) if extra else 'PASS host not_in_inventory') -%}
+          {{ out }}
+
+    - name: Result
+      ansible.builtin.debug:
+        msg: "{{ verify_monitor.stdout_lines + verify_lines }}"
+
+    - name: All checks pass
+      ansible.builtin.assert:
+        that:
+          - verify_fail | length == 0
+        fail_msg: "{{ verify_fail | length }} FAIL: {{ verify_fail | join(' | ') }}"
+        success_msg: "{{ (verify_monitor.stdout_lines + verify_lines) | select('match', '^PASS') | list | length }} PASS, 0 FAIL"
+      vars:
+        verify_fail: "{{ (verify_monitor.stdout_lines + verify_lines) | select('match', '^FAIL') | list }}"

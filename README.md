@@ -34,6 +34,7 @@ python3 -m venv .venv
 |---|---|
 | `playbooks/site.yml` | Повна конфігурація хоста. |
 | `playbooks/doctor.yml` | Тільки preflight-перевірки, без змін. |
+| `playbooks/verify.yml` | Перевірка всіх хостів і сайтів (PASS/FAIL), без змін. |
 | `playbooks/site-backup.yml` | Бекап зараз: один сайт (`-e wp_site_only=<domain>`) або все. |
 | `playbooks/site-remove.yml` | Видалення сайту (спершу бекап і архів). |
 | `playbooks/site-clone.yml` | Клон сайту A у сайт B. |
@@ -338,6 +339,19 @@ wp-git-commit <domain> "опис"  # прийняти зміни коду (git b
 
 Пороги й перелік перевірок: `roles/wp_monitor/defaults/main.yml` → `/etc/wp-monitor.conf`.
 Сайт без WordPress пропускається (SKIP).
+
+### Перевірка на вимогу (verify.yml)
+
+```sh
+ansible-playbook playbooks/verify.yml [--limit wp01] [-e wp_site_only=example.com]
+```
+
+Тонкий playbook без власної логіки перевірок сайтів: запускає `wp-monitor --check` на кожному хості
+(ті самі перевірки, що й уночі; без алерту і без запису baseline). Додає лише те, що знає тільки
+Ansible — сервер проти інвентаря: права DB-користувача (тільки GRANT ALL на свою БД + USAGE), пул FPM
+`/etc/php/<ver>/fpm/pool.d/<user>.conf`, vhost у `sites-enabled`, а також зайве на сервері, чого
+немає в `wp_sites` (пули, vhost, каталоги `/srv/sites/*`, DB-користувачі). Будь-який FAIL — хост
+падає з переліком.
 
 ### Ремонт ядра (site-repair-core.yml)
 
