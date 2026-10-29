@@ -15,3 +15,4 @@
     - { role: site, tags: [site] }
     - { role: backup_restic, tags: [backup_restic] }
     - { role: wp_monitor, tags: [wp_monitor] }
+    - { role: maintenance, tags: [maintenance] }

@@ -1,0 +1,3 @@
+---
+maintenance_auto_update: true
+maintenance_on_calendar: "Sun *-*-* 05:00:00"

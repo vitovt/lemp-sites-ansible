@@ -1,0 +1,55 @@
+---
+- name: Install the update runner
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/wp-update
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/usr/bin/env python3
+      import pathlib, subprocess, sys
+      failed = False
+      for facts in pathlib.Path('/srv/sites').glob('*/conf/site.env'):
+          base = facts.parent.parent
+          if (base / 'conf/maintenance').exists() or not (base / 'conf/wordpress-installed').exists():
+              continue
+          result = subprocess.run(['/usr/local/sbin/wp-backup', 'update', base.name, '--yes'])
+          failed = failed or result.returncode != 0
+      sys.exit(1 if failed else 0)
+
+- name: Install the update service and timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - name: wp-update.service
+      content: |
+        [Unit]
+        Description=Checked WordPress updates with backup and rollback
+        After=nginx.service mariadb.service
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/wp-update
+        TimeoutStartSec=2h
+        Nice=10
+    - name: wp-update.timer
+      content: |
+        [Unit]
+        Description=Weekly WordPress updates
+        [Timer]
+        OnCalendar={{ maintenance_on_calendar }}
+        RandomizedDelaySec=15m
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
+  register: maintenance_units
+
+- name: Set the update timer state
+  ansible.builtin.systemd_service:
+    name: wp-update.timer
+    daemon_reload: "{{ maintenance_units is changed }}"
+    enabled: "{{ maintenance_auto_update | bool }}"
+    state: "{{ 'started' if maintenance_auto_update | bool else 'stopped' }}"

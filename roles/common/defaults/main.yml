@@ -20,9 +20,8 @@ common_packages:
 
 common_timezone: Etc/UTC
 
-# Unattended upgrades: Debian security pocket only.
-# Set to true to also auto-update Sury PHP packages (restarts PHP-FPM).
-common_unattended_include_sury: false
+# Include Debian security and Sury PHP updates. PHP updates can restart FPM.
+common_unattended_include_sury: true
 common_unattended_auto_reboot: false
 
 # SSH: "devsec" = devsec.hardening.ssh_hardening (full sshd_config),

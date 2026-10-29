@@ -1,5 +1,5 @@
 // {{ ansible_managed }}
-// Security updates only. Point releases and third-party repos are updated by hand.
+// Debian security updates and, when enabled, Sury PHP updates.
 Unattended-Upgrade::Origins-Pattern {
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
 {% if common_unattended_include_sury %}
