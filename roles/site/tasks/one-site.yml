@@ -39,10 +39,13 @@
 - name: Cron and logrotate ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: cron.yml
 
-# On demand only (needs both tags, "site" runs the includes):
+# On demand only:
 #   ansible-playbook playbooks/site.yml -t site,site_fix_perms -e wp_site_only=<domain>
+# ("site" runs the includes). The role tag "site" is inherited, so "never"
+# alone would not keep plain "-t site" from running it: guard on run tags.
 - name: Reset htdocs owner and modes ({{ site_cfg.domain }})
   ansible.builtin.command:
     cmd: "/usr/local/sbin/site-fix-perms {{ site_cfg.domain }}"
   changed_when: true
+  when: "'site_fix_perms' in ansible_run_tags"
   tags: [never, site_fix_perms]
