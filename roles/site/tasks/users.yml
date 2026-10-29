@@ -32,6 +32,7 @@
     name: www-data
     groups: "{{ site_cfg.user }}"
     append: true
+    create_home: false
   notify: reload nginx
 
 # Object cache: the Valkey socket is mode 770, group valkey. <user> too, so
@@ -41,6 +42,8 @@
     name: "{{ item }}"
     groups: "{{ valkey_group | default('valkey') }}"
     append: true
+    # Default true would create the (not yet existing) home = site dir from /etc/skel.
+    create_home: false
   loop:
     - "{{ site_cfg.user }}-php"
     - "{{ site_cfg.user }}"
