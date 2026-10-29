@@ -15,11 +15,13 @@
     collation: utf8mb4_unicode_ci
     login_unix_socket: "{{ mariadb_socket }}"
 
+# In GRANT ... ON `db`.* the name is a LIKE pattern: "_" matches any char,
+# so jenet_info.* would also match jenetXinfo. Escape it.
 - name: Create site DB user
   community.mysql.mysql_user:
     name: "{{ site_cfg.db_name }}"
     host: localhost
     password: "{{ site_db_pass }}"
-    priv: "{{ site_cfg.db_name }}.*:ALL"
+    priv: "`{{ site_cfg.db_name | replace('_', '\\_') }}`.*:ALL"
     login_unix_socket: "{{ mariadb_socket }}"
   no_log: true

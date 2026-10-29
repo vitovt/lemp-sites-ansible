@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # DRAFT. Site CLI for this repo. Runs on the admin laptop, not on the server.
 # Usage:
-#   scripts/site add <host> <domain> <user> [php_version] [--dry-run]
+#   scripts/site add <host> <domain> [user|-] [php_version] [--dry-run]
+#     user "-" or empty = role default (domain with . and - as _)
 #   scripts/site info <host> [domain]
 #   scripts/site remove|clone ...   (stubs, see playbooks/)
 set -euo pipefail
@@ -15,13 +16,18 @@ set -- "${args[@]}"
 
 valid_host()   { [[ -d inventories/prod/host_vars/$1 ]] || die "unknown host: $1"; }
 valid_domain() { [[ $1 =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "bad domain: $1"; }
-valid_user()   { [[ $1 =~ ^[a-z][a-z0-9]{1,27}$ ]] || die "bad user (a-z0-9, 2-28): $1"; }
+# Same rule as the site role: [a-z][a-z0-9_]*, max 28 (site_user_max_len).
+valid_user()   { [[ $1 =~ ^[a-z][a-z0-9_]{1,27}$ ]] || die "bad user ([a-z][a-z0-9_], 2-28): $1"; }
+# Role default for user/db_name: domain with "." and "-" -> "_".
+default_user() { local u=${1//[.-]/_}; echo "$u"; }
 confirm()      { read -r -p "$1 [y/N] " r; [[ $r == y ]] || die "aborted"; }
 
 cmd_add() {
-  [[ $# -ge 3 ]] || die "usage: add <host> <domain> <user> [php_version]"
-  local host=$1 domain=$2 user=$3 php=${4:-8.3} f
-  valid_host "$host"; valid_domain "$domain"; valid_user "$user"
+  [[ $# -ge 2 ]] || die "usage: add <host> <domain> [user|-] [php_version]"
+  local host=$1 domain=$2 user=${3:--} php=${4:-8.3} f
+  valid_host "$host"; valid_domain "$domain"
+  [[ $user == - ]] && user=$(default_user "$domain")
+  valid_user "$user"
   f=inventories/prod/host_vars/$host/sites.yml
   grep -q "^  ${domain}:" "$f" && die "$domain already in $f"
   grep -q "user: ${user}\$" "$f" && die "user $user already used in $f"

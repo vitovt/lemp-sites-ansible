@@ -13,10 +13,11 @@
 - name: Check site user name ({{ site_cfg.domain }})
   ansible.builtin.assert:
     that:
-      - site_cfg.user is match('^[a-z_][a-z0-9_]*$')
+      - site_cfg.user is match('^[a-z][a-z0-9_]*$')
+      - site_cfg.db_name is match('^[a-z][a-z0-9_]*$')
       - site_cfg.user | length <= site_user_max_len
       - site_cfg.db_name | length <= 64
-    fail_msg: "Bad user/db name for {{ site_cfg.domain }}: {{ site_cfg.user }} (max {{ site_user_max_len }} chars, [a-z0-9_])"
+    fail_msg: "Bad user/db name for {{ site_cfg.domain }}: {{ site_cfg.user }} (max {{ site_user_max_len }} chars, [a-z][a-z0-9_]*)"
     quiet: true
 
 - name: Users ({{ site_cfg.domain }})
