@@ -82,7 +82,9 @@ check_site() {  # $1 = site dir
     # --- health ---
     if has db_connect; then
         out=$(wp_php eval 'global $wpdb; echo $wpdb->get_var("SELECT 1");' 2>&1)
-        if [ "$out" = 1 ]; then ok db_connect; else db_ok=0; p db_connect "$(oneline 2 <<<"$out")"; fi
+        # Last line: a graceful object-cache drop-in prints its Valkey error first
+        # (the valkey check reports that), but the DB answer still comes last.
+        if [ "${out##*$'\n'}" = 1 ]; then ok db_connect; else db_ok=0; p db_connect "$(oneline 2 <<<"$out")"; fi
     fi
 
     if has http_home; then
@@ -234,6 +236,7 @@ check_site() {  # $1 = site dir
                 $t = 0; $s = [];
                 foreach ($rows as $r) { $t += $r->n; $s[] = "$r->post_type:$r->n"; }
                 echo $t, " ", implode(" ", $s);' 2>&1)
+            [[ ${out##*$'\n'} =~ ^[0-9]+\  ]] && out=${out##*$'\n'}   # skip drop-in noise
             x=${out%% *}
             if ! [[ $x =~ ^[0-9]+$ ]]; then p content_spike "query failed: $(oneline 2 <<<"$out")"
             elif [ "$x" -gt "$CONTENT_MAX" ]; then p content_spike "$x new posts in 24h (limit $CONTENT_MAX):${out#"$x"}"
