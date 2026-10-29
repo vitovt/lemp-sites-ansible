@@ -1,0 +1,8 @@
+---
+# Read-only health check before changes (same checks as the first step of site.yml):
+#   ansible-playbook playbooks/doctor.yml --limit wp01
+- name: Doctor (preflight only, no changes)
+  hosts: wp
+  become: true
+  roles:
+    - { role: preflight, tags: [preflight] }

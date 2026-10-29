@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Sysadmin bot
+  description: "Read-only checks before anything is changed"
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+dependencies: []

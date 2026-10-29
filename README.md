@@ -33,6 +33,7 @@ python3 -m venv .venv
 | Файл | Дія |
 |---|---|
 | `playbooks/site.yml` | Повна конфігурація хоста. |
+| `playbooks/doctor.yml` | Тільки preflight-перевірки, без змін. |
 | `playbooks/site-backup.yml` | Бекап зараз: один сайт (`-e wp_site_only=<domain>`) або все. |
 | `playbooks/site-remove.yml` | Видалення сайту (спершу бекап і архів). |
 | `playbooks/site-clone.yml` | Клон сайту A у сайт B. |
@@ -44,8 +45,27 @@ ansible-playbook playbooks/site.yml --limit wp01 -e wp_site_only=jenet.info
 ```
 
 Порядок ролей у `site.yml`:
-common, telegram_alert, nginx, php, mariadb, valkey, certbot_cloudflare, site, backup_restic, wp_monitor.
+preflight, common, telegram_alert, nginx, php, mariadb, valkey, certbot_cloudflare, site, backup_restic, wp_monitor.
 Кожна роль має тег з тією ж назвою.
+
+## Preflight і doctor
+
+Роль `preflight` іде першою в `site.yml` (тег `always`) і нічого не змінює.
+Усі помилки збираються в один список, і play зупиняється до будь-якої зміни.
+`playbooks/doctor.yml` запускає ті самі перевірки окремо.
+
+- `wp_sites`: формат домену і aliases, невідомі ключі (опечатки), `php_version` вигляду `8.3`,
+  `user`/`db_name` (`[a-z][a-z0-9_]*`, user до 28 символів), булеві прапорці,
+  `table_prefix`; дублікати користувачів, БД, доменів і aliases між сайтами.
+- Розбіжність з хостом: `user` або `db_name` у `sites.yml` не збігається з `conf/site.env`
+  існуючого сайту (перейменування створило б другий набір).
+- Хост: Debian 13; не встановлено `apache2` (`preflight_forbidden_packages`); порти 80/443
+  не зайняті іншою програмою, ніж nginx; вільне місце (`preflight_min_free_mb`: `/` 2 ГіБ,
+  `/srv/sites` 2 ГіБ, `/var` 1 ГіБ); RAM < 1 ГіБ — тільки попередження.
+
+```sh
+ansible-playbook playbooks/doctor.yml --limit wp01
+```
 
 ## Структура
 
@@ -65,6 +85,7 @@ common, telegram_alert, nginx, php, mariadb, valkey, certbot_cloudflare, site, b
 
 | Роль | Дія |
 |---|---|
+| `preflight` | Перевірки без змін: `wp_sites`, apache2, порти, місце, ОС. |
 | `common` | Перевірка Debian 13, пакети, часовий пояс, unattended-upgrades, SSH. Перевірка ключа root. |
 | `nginx` | Nginx, FastCGI cache, модуль cache-purge, Cloudflare real IP. |
 | `php` | PHP з packages.sury.org (кілька версій), wp-cli 2.12.0. |

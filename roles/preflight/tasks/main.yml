@@ -1,0 +1,148 @@
+---
+# Nothing here changes the host. Errors are collected, then reported together.
+- name: Validate wp_sites
+  ansible.builtin.set_fact:
+    preflight_site_errors: >-
+      {%- set e = [] -%}
+      {%- set sites = wp_sites | default({}) -%}
+      {%- if sites is not mapping -%}
+      {%-   set _ = e.append('wp_sites must be a mapping: domain -> settings') -%}
+      {%- else -%}
+      {%-   set dom_re = '^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$' -%}
+      {%-   set names = [] -%}
+      {%-   set users = [] -%}
+      {%-   set dbs = [] -%}
+      {%-   for domain, raw in sites.items() -%}
+      {%-     set cfg = raw | default({}, true) -%}
+      {%-     if cfg is not mapping -%}
+      {%-       set _ = e.append(domain ~ ': settings must be a mapping') -%}
+      {%-     else -%}
+      {%-       set user = cfg.user | default(domain | regex_replace('[.-]', '_')) | string -%}
+      {%-       set db = cfg.db_name | default(domain | regex_replace('[.-]', '_')) | string -%}
+      {%-       if domain is not match(dom_re) -%}{%- set _ = e.append(domain ~ ': bad domain name (lowercase, no trailing dot)') -%}{%- endif -%}
+      {%-       for k in cfg.keys() | difference(preflight_site_keys) -%}{%- set _ = e.append(domain ~ ': unknown key "' ~ k ~ '"') -%}{%- endfor -%}
+      {%-       if (cfg.php_version | default(php_default_version) | string) is not match('^[5-8]\\.[0-9]$') -%}
+      {%-         set _ = e.append(domain ~ ': php_version must look like "8.3"') -%}
+      {%-       endif -%}
+      {%-       if user is not match('^[a-z][a-z0-9_]*$') or user | length > site_user_max_len | default(28) | int -%}
+      {%-         set _ = e.append(domain ~ ': bad user "' ~ user ~ '" ([a-z][a-z0-9_]*, max ' ~ site_user_max_len | default(28) ~ ')') -%}
+      {%-       endif -%}
+      {%-       if db is not match('^[a-z][a-z0-9_]*$') or db | length > 64 -%}{%- set _ = e.append(domain ~ ': bad db_name "' ~ db ~ '"') -%}{%- endif -%}
+      {%-       if user in users -%}{%- set _ = e.append(domain ~ ': user "' ~ user ~ '" used twice') -%}{%- endif -%}
+      {%-       if db in dbs -%}{%- set _ = e.append(domain ~ ': db_name "' ~ db ~ '" used twice') -%}{%- endif -%}
+      {%-       set _ = users.append(user) -%}
+      {%-       set _ = dbs.append(db) -%}
+      {%-       set aliases = cfg.aliases | default([]) -%}
+      {%-       if aliases is string or aliases is not iterable -%}
+      {%-         set _ = e.append(domain ~ ': aliases must be a list') -%}
+      {%-         set aliases = [] -%}
+      {%-       endif -%}
+      {%-       for n in [domain] + aliases | list -%}
+      {%-         if n != domain and n is not match(dom_re) -%}{%- set _ = e.append(domain ~ ': bad alias "' ~ n ~ '"') -%}{%- endif -%}
+      {%-         if n in names -%}{%- set _ = e.append(domain ~ ': name "' ~ n ~ '" used twice') -%}{%- endif -%}
+      {%-         set _ = names.append(n) -%}
+      {%-       endfor -%}
+      {%-       for k in ['cache', 'redis', 'xmlrpc', 'wp_install'] -%}
+      {%-         if k in cfg and cfg[k] is not boolean -%}{%- set _ = e.append(domain ~ ': ' ~ k ~ ' must be true/false') -%}{%- endif -%}
+      {%-       endfor -%}
+      {%-       if (cfg.table_prefix | default('wp_') | string) is not match('^[A-Za-z0-9_]+$') -%}
+      {%-         set _ = e.append(domain ~ ': bad table_prefix') -%}
+      {%-       endif -%}
+      {%-     endif -%}
+      {%-   endfor -%}
+      {%- endif -%}
+      {{ e }}
+
+- name: Read existing sites on the host
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      for f in {{ site_root | default('/srv/sites') }}/*/conf/site.env; do
+      [ -e "$f" ] && grep -H -E '^(DOMAIN|SITE_USER|DB_NAME)=' "$f"; done; true
+  register: preflight_env
+  changed_when: false
+  check_mode: false
+
+# A changed user/db_name for an existing site would create a second set, not rename.
+- name: Compare existing sites with inventory
+  ansible.builtin.set_fact:
+    preflight_drift_errors: >-
+      {%- set e = [] -%}
+      {%- set cur = {} -%}
+      {%- for line in preflight_env.stdout_lines -%}
+      {%-   set m = line | regex_search('/([^/]+)/conf/site.env:([A-Z_]+)="?([^"]*)"?$', '\\1', '\\2', '\\3') -%}
+      {%-   if m -%}{%- set _ = cur.update({m[0] ~ '|' ~ m[1]: m[2]}) -%}{%- endif -%}
+      {%- endfor -%}
+      {%- for domain, raw in (wp_sites | default({}) if wp_sites | default({}) is mapping else {}).items() -%}
+      {%-   set cfg = raw | default({}, true) if raw is mapping or raw is none else {} -%}
+      {%-   set want_user = cfg.user | default(domain | regex_replace('[.-]', '_')) -%}
+      {%-   set want_db = cfg.db_name | default(domain | regex_replace('[.-]', '_')) -%}
+      {%-   if (domain ~ '|SITE_USER') in cur and cur[domain ~ '|SITE_USER'] != want_user -%}
+      {%-     set _ = e.append(domain ~ ': host has user ' ~ cur[domain ~ '|SITE_USER'] ~ ', inventory says ' ~ want_user) -%}
+      {%-   endif -%}
+      {%-   if (domain ~ '|DB_NAME') in cur and cur[domain ~ '|DB_NAME'] != want_db -%}
+      {%-     set _ = e.append(domain ~ ': host has db ' ~ cur[domain ~ '|DB_NAME'] ~ ', inventory says ' ~ want_db) -%}
+      {%-   endif -%}
+      {%- endfor -%}
+      {{ e }}
+
+- name: Check forbidden packages
+  ansible.builtin.command:
+    argv: [dpkg-query, -W, "-f=${db:Status-Status}", "{{ item }}"]
+  loop: "{{ preflight_forbidden_packages }}"
+  register: preflight_pkgs
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Check listeners on 80/443
+  ansible.builtin.command:
+    argv: [ss, -Hltnp, "( sport = :80 or sport = :443 )"]
+  register: preflight_ss
+  changed_when: false
+  check_mode: false
+
+- name: Check free space
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      p={{ item.key | quote }}; while [ ! -e "$p" ]; do p=$(dirname "$p"); done;
+      df -BM --output=avail "$p" | tail -n 1 | tr -dc 0-9
+    executable: /bin/bash
+  loop: "{{ preflight_min_free_mb | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: preflight_df
+  changed_when: false
+  check_mode: false
+
+- name: Collect host errors
+  ansible.builtin.set_fact:
+    preflight_host_errors: >-
+      {%- set e = [] -%}
+      {%- if ansible_facts.distribution | default('') != 'Debian'
+            or ansible_facts.distribution_major_version | default('') | string != preflight_debian_major | string -%}
+      {%-   set _ = e.append('OS is ' ~ ansible_facts.distribution | default('?') ~ ' '
+                             ~ ansible_facts.distribution_major_version | default('?') ~ ', need Debian ' ~ preflight_debian_major) -%}
+      {%- endif -%}
+      {%- for r in preflight_pkgs.results if r.rc == 0 and r.stdout == 'installed' -%}
+      {%-   set _ = e.append('package ' ~ r.item ~ ' is installed: remove it (apt purge ' ~ r.item ~ ')') -%}
+      {%- endfor -%}
+      {%- for l in preflight_ss.stdout_lines if '"nginx"' not in l -%}
+      {%-   set _ = e.append('port 80/443 taken by another program: ' ~ l | regex_replace('\\s+', ' ')) -%}
+      {%- endfor -%}
+      {%- for r in preflight_df.results if (r.stdout | int) < (r.item.value | int) -%}
+      {%-   set _ = e.append(r.item.key ~ ': ' ~ r.stdout ~ ' MiB free, need ' ~ r.item.value) -%}
+      {%- endfor -%}
+      {{ e }}
+
+- name: Warn about low memory
+  ansible.builtin.debug:
+    msg: "Only {{ ansible_facts.memtotal_mb }} MiB RAM (recommended {{ preflight_min_mem_mb }}+)."
+  when: (ansible_facts.memtotal_mb | default(0) | int) < (preflight_min_mem_mb | int)
+
+- name: Preflight result
+  ansible.builtin.assert:
+    that: (preflight_site_errors + preflight_drift_errors + preflight_host_errors) | length == 0
+    fail_msg: "Preflight failed: {{ preflight_site_errors + preflight_drift_errors + preflight_host_errors }}"
+    success_msg: "Preflight ok: {{ (wp_sites | default({})) | length }} sites, host checks passed."

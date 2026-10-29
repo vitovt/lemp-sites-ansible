@@ -3,6 +3,7 @@
   hosts: wp
   become: true
   roles:
+    - { role: preflight, tags: [preflight, always] }
     - { role: common, tags: [common] }
     - { role: telegram_alert, tags: [telegram_alert] }
     - { role: nginx, tags: [nginx] }
