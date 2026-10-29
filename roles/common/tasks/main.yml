@@ -9,6 +9,19 @@
       found {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_major_version'] }}.
     quiet: true
 
+# cache_valid_time trusts the stamp file even when the lists are empty
+# (minimal images and CT templates often ship without /var/lib/apt/lists).
+- name: Check for apt package lists
+  ansible.builtin.find:
+    paths: /var/lib/apt/lists
+    patterns: "*_Packages*"
+  register: common_apt_lists
+
+- name: Update apt cache when lists are missing
+  ansible.builtin.apt:
+    update_cache: true
+  when: common_apt_lists.matched == 0
+
 - name: Install base packages
   ansible.builtin.apt:
     name: "{{ common_packages }}"
