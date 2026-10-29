@@ -7,8 +7,13 @@ set -eu
 domain="${1:?usage: site-fix-perms <domain>}"
 dir="/srv/sites/${domain}/htdocs"
 [ -d "$dir" ] || { echo "no such site: $domain" >&2; exit 1; }
-user="$(stat -c %G "$dir")"
-[ "$user" != root ] || { echo "refusing: $dir group is root" >&2; exit 1; }
+# Owner from site.env (written by Ansible), not from the files: after a copy
+# (rsync -a, tar) they may belong to another site.
+env="/srv/sites/${domain}/conf/site.env"
+[ -r "$env" ] || { echo "no $env" >&2; exit 1; }
+user="$(sed -n 's/^SITE_USER="\{0,1\}\([a-z][a-z0-9_]*\)"\{0,1\}$/\1/p' "$env")"
+[ -n "$user" ] && [ "$user" != root ] || { echo "refusing: no SITE_USER in $env" >&2; exit 1; }
+getent passwd "$user" >/dev/null || { echo "no such user: $user" >&2; exit 1; }
 writable="${SITE_WRITABLE_DIRS:-wp-content/uploads wp-content/cache wp-content/upgrade}"
 
 chown -R -h "$user:$user" "$dir"
