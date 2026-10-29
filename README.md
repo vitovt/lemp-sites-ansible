@@ -308,13 +308,35 @@ Vhost переходить на сертифікат LE під час того �
 
 ## Моніторинг (wp_monitor)
 
-Таймер `wp-monitor.timer` (04:30) запускає `/usr/local/sbin/wp-monitor`. Для кожного сайту:
-`wp core verify-checksums`, `wp plugin verify-checksums --all` (тільки плагіни з wordpress.org),
-`git status --porcelain` у `htdocs` (перший запуск робить baseline), PHP-файли в `uploads`/`cache`/`upgrade`,
-нові адміністратори проти `/var/lib/wp-monitor/<domain>.admins`, HTTP 200 головної через 127.0.0.1.
-Одне спільне повідомлення `tg-alert`, тільки коли є проблема.
-Прийняти зміни: код — `wp-git-commit <domain>`, адміни — `wp-monitor --ack <domain>`.
-Сайт без WordPress пропускається.
+Уся логіка перевірок — в одному скрипті `/usr/local/sbin/wp-monitor` на сервері.
+Таймер `wp-monitor.timer` (04:30) запускає його вночі: одне спільне повідомлення `tg-alert`,
+тільки коли є проблема. Вивід — рядки `PASS|FAIL|SKIP <сайт> <перевірка>[: деталі]`, код 1 при FAIL.
+
+| Перевірка | Що робить |
+|---|---|
+| `host_services`, `disk_space` | nginx, mariadb, valkey-server активні, `nginx -t`; вільно ≥ 10% на `/`, `/srv/sites`, `/var` |
+| `db_connect` | WordPress дістає свою БД (`SELECT 1` через `$wpdb`) |
+| `http_home` | головна через 127.0.0.1 → 200 |
+| `fpm_pool` | php-fpm активний, сокет пулу є, запит повз кеш → 200 |
+| `cert_expiry` | LE-сертифікат віддає nginx і він дійсний > 14 днів; без LE (snakeoil) — SKIP |
+| `valkey` | для `redis: true`: SET/GET/DEL з ACL-користувачем сайту |
+| `core_checksums` | `wp core verify-checksums --include-root`: змінені/відсутні файли ядра, зайві файли в `wp-admin/`, `wp-includes/`, зайві PHP у корені |
+| `plugin_checksums` | `wp plugin verify-checksums --all` (тільки плагіни з wordpress.org) |
+| `stray_php` | PHP прямо в `wp-content` (крім drop-in: `object-cache.php` тощо), приховані `.*.php` і `.user.ini` будь-де |
+| `php_in_writable` | `*.php`/`.phtml`/`.phar` в `uploads`, `cache`, `upgrade` (крім `index.php` «Silence is golden») |
+| `git_status` | незакомічені/нові файли в `htdocs` |
+| `admin_users` | список адміністраторів (id + login) проти `/var/lib/wp-monitor/<domain>.admins`: «added evil (id 7) removed admin (id 1)». Після алерту baseline оновлюється (наступної ночі тиша) |
+| `content_spike` | більше `monitor_content_max` (ключ сайту, типово 10, `0` = вимк.) нових записів будь-якого типу за 24 год. Не рахуються: revision, nav_menu_item, auto-draft, customize_changeset, oembed_cache, user_request, замовлення WooCommerce (`wp_monitor_content_exclude_types`), медіа (`wp_monitor_content_attachments: true` — рахувати) |
+
+```sh
+wp-monitor --check [domain]    # лише читання: без алерту, без запису baseline
+wp-monitor --ack <domain>      # прийняти поточний список адмінів без алерту
+wp-monitor --files <domain>    # перевірки цілісності + рядки FILE <шлях> (для site-repair-core)
+wp-git-commit <domain> "опис"  # прийняти зміни коду (git baseline)
+```
+
+Пороги й перелік перевірок: `roles/wp_monitor/defaults/main.yml` → `/etc/wp-monitor.conf`.
+Сайт без WordPress пропускається (SKIP).
 
 ## Видалення і клон
 

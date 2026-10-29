@@ -33,3 +33,4 @@ preflight_site_keys:
   - wp_title
   - wp_locale
   - wp_version
+  - monitor_content_max

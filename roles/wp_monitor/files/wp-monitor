@@ -1,99 +1,264 @@
 #!/bin/bash
-# wp-monitor                 check all sites, one tg-alert if anything is wrong
-# wp-monitor <domain>        check one site
-# wp-monitor --ack <domain>  accept the current administrator list
-# Config: /etc/wp-monitor.conf. Exit 1 when problems were found.
+# wp-monitor                  nightly: check all sites, one tg-alert if anything is wrong,
+#                             then update baselines (administrator list)
+# wp-monitor <domain>         same, one site
+# wp-monitor --check [domain] read-only: PASS/FAIL/SKIP lines, no alert, no state written
+#                             (playbooks/verify.yml runs this)
+# wp-monitor --ack <domain>   accept the current administrator list without an alert
+# wp-monitor --files <domain> read-only: integrity checks plus "FILE <path>" lines for every
+#                             extra/stray PHP file (playbooks/site-repair-core.yml)
+# Config: /etc/wp-monitor.conf (CHECKS etc.), per site: conf/site.env.
+# Exit 1 when a check failed, 2 on usage errors.
 set -uo pipefail
 SITES_ROOT=/srv/sites
+CERT_MIN_DAYS=14 DISK_MIN_FREE_PCT=10 CONTENT_EXCLUDE_TYPES="" CONTENT_ATTACHMENTS=no
+DROPINS='index\.php\|object-cache\.php\|advanced-cache\.php\|db\.php'
 . /etc/wp-monitor.conf
-mkdir -p "$STATE_DIR"; chmod 700 "$STATE_DIR"
 
-ACK=0
-if [ "${1:-}" = "--ack" ]; then ACK=1; shift; fi
+MODE=nightly
+case "${1:-}" in
+    --check) MODE=check; shift ;;
+    --ack | --files)
+             MODE=${1#--}; shift; [ -n "${1:-}" ] || { echo "usage: wp-monitor --$MODE <domain>" >&2; exit 2; } ;;
+    -*)      echo "usage: wp-monitor [--check|--ack|--files] [domain]" >&2; exit 2 ;;
+esac
 ONE="${1:-}"
+case $MODE in check | files) ;; *) mkdir -p "$STATE_DIR"; chmod 700 "$STATE_DIR" ;; esac
 
-report=""
-add() { report+="$1"$'\n'; }
+report="" failed=0 pending=()
 has() { case " $CHECKS " in *" $1 "*) return 0;; esac; return 1; }
+# Result lines: "PASS|FAIL|SKIP <site> <check>[: detail]"
+ok()   { echo "PASS $SITE $1${2:+: $2}"; }
+skip() { echo "SKIP $SITE $1${2:+: $2}"; }
+p()    { echo "FAIL $SITE $1: $2"; failed=1; report+="  - $SITE $1: $2"$'\n'; }
+# WordPress's own "Silence is golden." index.php (or an empty one) is fine anywhere.
+silence() {
+    [ "$(basename "$1")" = index.php ] && [ "$(stat -c %s "$1")" -le 64 ] || return 1
+    case $(tr -d ' \t\r\n' <"$1") in '<?php' | '<?php//Silenceisgolden.' | '') return 0 ;; esac
+    return 1
+}
+# --files: list paths (relative to htdocs) for site-repair-core.yml
+files() { [ "$MODE" = files ] && [ -n "$1" ] && sed 's/^/FILE /' <<<"$1"; return 0; }
+oneline() { head -n "${1:-5}" | tr '\n' ' ' | sed 's/ *$//'; }
 
 wp_php() {  # wp-cli as the PHP user (read-only checks), right PHP version
     runuser -u "$SITE_USER-php" -- env HOME="$dir/tmp" WP_CLI_CACHE_DIR="$dir/tmp/wp-cli-cache" \
         "php$PHP_VERSION" "$WPCLI" --path="$dir/htdocs" --skip-plugins --skip-themes --no-color "$@"
 }
 
+check_host() {
+    local SITE=host out s pct m
+    if has host_services; then
+        out=""
+        for s in nginx mariadb valkey-server; do
+            systemctl list-unit-files "$s.service" >/dev/null 2>&1 || continue
+            systemctl is-active --quiet "$s" || out+="$s "
+        done
+        nginx -t -q >/dev/null 2>&1 || out+="nginx-config "
+        [ -z "$out" ] && ok host_services || p host_services "not running/invalid: ${out% }"
+    fi
+    if has disk_space; then
+        out=""
+        for m in / "$SITES_ROOT" /var; do
+            [ -e "$m" ] || continue
+            pct=$(df --output=pcent "$m" | tail -n 1 | tr -dc 0-9)
+            [ $((100 - pct)) -ge "$DISK_MIN_FREE_PCT" ] || out+="$m ${pct}% used; "
+        done
+        [ -z "$out" ] && ok disk_space || p disk_space "${out%; } (need ${DISK_MIN_FREE_PCT}% free)"
+    fi
+}
+
 check_site() {  # $1 = site dir
-    local dir="$1" DOMAIN SITE_USER PHP_VERSION out problems=""
-    eval "$(. "$dir/conf/site.env"; printf 'DOMAIN=%q SITE_USER=%q PHP_VERSION=%q' "$DOMAIN" "$SITE_USER" "$PHP_VERSION")"
-    p() { problems+="  - $1"$'\n'; }
+    local dir="$1" DOMAIN SITE_USER PHP_VERSION REDIS CONTENT_MAX SITE out db_ok=1 x
+    eval "$(CONTENT_MAX=10; . "$dir/conf/site.env"; printf 'DOMAIN=%q SITE_USER=%q PHP_VERSION=%q REDIS=%q CONTENT_MAX=%q' \
+        "$DOMAIN" "$SITE_USER" "$PHP_VERSION" "${REDIS:-false}" "${CONTENT_MAX:-10}")"
+    SITE=$DOMAIN
+    local htdocs="$dir/htdocs"
 
-    if [ ! -f "$dir/htdocs/wp-includes/version.php" ]; then
-        echo "$DOMAIN: WordPress not installed, skipped"; return
+    if [ ! -f "$htdocs/wp-includes/version.php" ]; then
+        skip wordpress "not installed, site skipped"; return
     fi
 
-    if has core_checksums; then
-        out=$(wp_php core verify-checksums 2>&1) || p "core checksums: $(grep -v '^Success' <<<"$out" | head -n 5 | tr '\n' ' ')"
-    fi
-
-    if has plugin_checksums; then
-        # JSON on stdout lists only real mismatches; non-wordpress.org plugins are skipped.
-        out=$(wp_php plugin verify-checksums --all --format=json 2>/dev/null)
-        out=$(grep -o '"plugin_name":"[^"]*","file":"[^"]*"' <<<"$out" | sed 's/"plugin_name":"\([^"]*\)","file":"\([^"]*\)"/\1: \2/')
-        [ -z "$out" ] || p "plugin checksums: $(head -n 5 <<<"$out" | tr '\n' ' ')"
-    fi
-
-    if has git_status; then
-        if [ ! -d "$dir/htdocs/.git" ]; then
-            wp-git-commit "$DOMAIN" "wp-monitor baseline" >/dev/null && echo "$DOMAIN: git baseline created"
-        else
-            out=$(runuser -u "$SITE_USER" -- git -C "$dir/htdocs" status --porcelain 2>&1)
-            [ -z "$out" ] || p "code changed (git status, $(wc -l <<<"$out") entries; accept: wp-git-commit $DOMAIN): $(head -n 5 <<<"$out" | tr '\n' ' ')"
-        fi
-    fi
-
-    if has php_in_writable; then
-        local d paths=()
-        for d in $WRITABLE_DIRS; do [ -d "$dir/htdocs/$d" ] && paths+=("$dir/htdocs/$d"); done
-        if [ ${#paths[@]} -gt 0 ]; then
-            out=$(find "${paths[@]}" -type f \( -iname '*.php*' -o -iname '*.phtml' -o -iname '*.phar' \) 2>/dev/null | head -n 5)
-            [ -z "$out" ] || p "PHP files in writable dirs: $(tr '\n' ' ' <<<"$out")"
-        fi
-    fi
-
-    if has admin_users; then
-        local state="$STATE_DIR/$DOMAIN.admins" new
-        if out=$(wp_php user list --role=administrator --field=user_login 2>/dev/null | sort -u); then
-            if [ ! -f "$state" ] || [ "$ACK" = 1 ]; then
-                printf '%s\n' "$out" > "$state"; echo "$DOMAIN: admin list saved ($(grep -c . <<<"$out"))"
-            else
-                new=$(comm -13 "$state" <(printf '%s\n' "$out") | grep . )
-                [ -z "$new" ] || p "new administrators: $(tr '\n' ' ' <<<"$new") (accept: wp-monitor --ack $DOMAIN)"
-            fi
-        else
-            p "admin users: wp user list failed"
-        fi
+    # --- health ---
+    if has db_connect; then
+        out=$(wp_php eval 'global $wpdb; echo $wpdb->get_var("SELECT 1");' 2>&1)
+        if [ "$out" = 1 ]; then ok db_connect; else db_ok=0; p db_connect "$(oneline 2 <<<"$out")"; fi
     fi
 
     if has http_home; then
         out=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 \
             --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/" 2>/dev/null)
-        [ "$out" = "200" ] || p "homepage https://$DOMAIN/ returned ${out:-no answer}"
+        [ "$out" = 200 ] && ok http_home || p http_home "https://$DOMAIN/ returned ${out:-no answer}"
     fi
 
-    if [ -n "$problems" ]; then add "$DOMAIN:"$'\n'"$problems"; else echo "$DOMAIN: ok"; fi
+    if has fpm_pool; then
+        # Query string bypasses the FastCGI cache, so PHP really runs in the pool.
+        local sock="/run/php/$SITE_USER.sock"
+        out=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 \
+            --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/?wp-monitor=$RANDOM$RANDOM" 2>/dev/null)
+        if ! systemctl is-active --quiet "php$PHP_VERSION-fpm"; then p fpm_pool "php$PHP_VERSION-fpm not running"
+        elif [ ! -S "$sock" ]; then p fpm_pool "no socket $sock"
+        elif [ "$out" != 200 ]; then p fpm_pool "uncached request returned ${out:-no answer}"
+        else ok fpm_pool; fi
+    fi
+
+    if has cert_expiry; then
+        local le="/etc/letsencrypt/live/$DOMAIN/fullchain.pem" served
+        if [ ! -f "$le" ]; then
+            skip cert_expiry "no Let's Encrypt certificate (snakeoil)"
+        else
+            served=$(openssl s_client -connect 127.0.0.1:443 -servername "$DOMAIN" </dev/null 2>/dev/null | openssl x509 -noout -serial -enddate 2>/dev/null)
+            if [ -z "$served" ]; then p cert_expiry "no certificate served on 127.0.0.1:443"
+            elif [ "$(openssl x509 -in "$le" -noout -serial)" != "$(grep '^serial=' <<<"$served")" ]; then
+                p cert_expiry "nginx serves another certificate than $le (reload nginx?)"
+            elif ! openssl x509 -in "$le" -noout -checkend $((CERT_MIN_DAYS * 86400)) >/dev/null; then
+                p cert_expiry "expires $(sed -n 's/^notAfter=//p' <<<"$served") (< $CERT_MIN_DAYS days)"
+            else ok cert_expiry "until $(sed -n 's/^notAfter=//p' <<<"$served")"; fi
+        fi
+    fi
+
+    if has valkey; then
+        if [ "$REDIS" != true ]; then skip valkey "redis: false"
+        elif [ "$db_ok" = 0 ]; then skip valkey "no database"
+        else
+            out=$(wp_php eval '
+                if (!defined("WP_REDIS_PATH")) { echo "WP_REDIS_PATH not set"; exit; }
+                $r = new Redis(); $r->connect(WP_REDIS_PATH); $r->auth(WP_REDIS_PASSWORD);
+                $k = WP_REDIS_PREFIX . "wp-monitor";
+                echo ($r->set($k, "1", 60) && $r->get($k) === "1" && $r->del($k)) ? "OK" : "NO";' 2>&1)
+            [[ $out == OK ]] && ok valkey || p valkey "$(oneline 2 <<<"$out")"
+        fi
+    fi
+
+    # --- integrity ---
+    if has core_checksums; then
+        # --include-root also checks extra files next to wp-load.php. Ignored: .git/,
+        # wp-config.php and non-PHP root files (robots.txt, verification .html, ...).
+        out=$(wp_php core verify-checksums --include-root 2>&1)
+        if grep -q "Couldn't get checksums\|Could not retrieve" <<<"$out"; then
+            p core_checksums "checksums not available: $(oneline 1 <<<"$out")"
+        else
+            # Extra files: all in wp-admin/ and wp-includes/, elsewhere only PHP-like ones.
+            out=$(awk '
+                sub(/^Warning: File doesn.t verify against checksum: /, "") { print "modified: " $0; next }
+                sub(/^Warning: File doesn.t exist: /, "")                 { print "missing: " $0; next }
+                sub(/^Warning: File should not exist: /, "") {
+                    if ($0 ~ /^\.git\// || $0 == "wp-config.php") next
+                    if ($0 ~ /^wp-(admin|includes)\// || tolower($0) ~ /\.(php[0-9s]*|phtml|phar)$/) print "extra: " $0
+                }' <<<"$out" | sort -u)
+            files "$(sed -n 's/^extra: //p' <<<"$out")"
+            [ -z "$out" ] && ok core_checksums || p core_checksums "$(grep -c . <<<"$out") files: $(oneline 5 <<<"$out")"
+        fi
+    fi
+
+    if has plugin_checksums; then
+        # JSON lists only real mismatches; non-wordpress.org plugins are skipped by wp-cli.
+        out=$(wp_php plugin verify-checksums --all --format=json 2>/dev/null)
+        out=$(grep -o '"plugin_name":"[^"]*","file":"[^"]*","message":"[^"]*"' <<<"$out" \
+            | sed 's/"plugin_name":"\([^"]*\)","file":"\([^"]*\)","message":"\([^"]*\)"/\1\/\2 (\3)/')
+        [ -z "$out" ] && ok plugin_checksums || p plugin_checksums "$(grep -c . <<<"$out") files: $(oneline 5 <<<"$out")"
+    fi
+
+    if has stray_php; then
+        # PHP directly in wp-content (only known drop-ins allowed), hidden .*.php and
+        # .user.ini (PHP-FPM reads it: auto_prepend_file) anywhere.
+        out=$( { find "$htdocs/wp-content" -maxdepth 1 -type f \( -iname '*.php*' -o -iname '*.phtml' -o -iname '*.phar' \) \
+                    ! -regex ".*/wp-content/\($DROPINS\)" 2>/dev/null
+                 find "$htdocs" -path "$htdocs/.git" -prune -o -type f \( -iname '.*.php*' -o -name .user.ini \) \
+                     ! -name '.php-cs-fixer*' ! -name '.php_cs*' -print 2>/dev/null; } \
+               | sed "s|^$htdocs/||" | sort -u)
+        files "$out"
+        [ -z "$out" ] && ok stray_php || p stray_php "$(grep -c . <<<"$out") files: $(oneline 5 <<<"$out")"
+    fi
+
+    if has php_in_writable; then
+        local d paths=()
+        for d in $WRITABLE_DIRS; do [ -d "$htdocs/$d" ] && paths+=("$htdocs/$d"); done
+        out=""
+        [ ${#paths[@]} -eq 0 ] || out=$(find "${paths[@]}" -type f \( -iname '*.php*' -o -iname '*.phtml' -o -iname '*.phar' \) 2>/dev/null \
+            | while read -r f; do silence "$f" || printf '%s\n' "${f#"$htdocs"/}"; done)
+        files "$out"
+        [ -z "$out" ] && ok php_in_writable || p php_in_writable "$(grep -c . <<<"$out") files: $(oneline 5 <<<"$out")"
+    fi
+
+    if has git_status; then
+        if [ ! -d "$htdocs/.git" ]; then
+            if [ "$MODE" = check ]; then skip git_status "no baseline yet"
+            else wp-git-commit "$DOMAIN" "wp-monitor baseline" >/dev/null && ok git_status "baseline created"; fi
+        else
+            out=$(runuser -u "$SITE_USER" -- git -C "$htdocs" status --porcelain 2>&1)
+            [ -z "$out" ] && ok git_status || p git_status "$(grep -c . <<<"$out") changed/untracked (accept: wp-git-commit $DOMAIN): $(oneline 5 <<<"$out")"
+        fi
+    fi
+
+    # --- users and content ---
+    if has admin_users; then
+        local state="$STATE_DIR/$DOMAIN.admins" added removed
+        if [ "$db_ok" = 0 ]; then skip admin_users "no database"
+        elif out=$(wp_php user list --role=administrator --fields=ID,user_login --format=csv 2>/dev/null); then
+            out=$(tail -n +2 <<<"$out" | tr ',' ' ' | grep . | sort -u)
+            # Old state format (logins only) or no state: take the current list.
+            if [ "$MODE" = ack ] || [ ! -f "$state" ] || grep -qv '^[0-9][0-9]* ' "$state"; then
+                if [ "$MODE" = check ]; then skip admin_users "no baseline yet"
+                else printf '%s\n' "$out" > "$state"; ok admin_users "baseline saved ($(grep -c . <<<"$out"))"; fi
+            else
+                added=$(comm -13 "$state" <(printf '%s\n' "$out") | grep . | sed 's/^\([0-9]*\) \(.*\)$/\2 (id \1)/')
+                removed=$(comm -23 "$state" <(printf '%s\n' "$out") | grep . | sed 's/^\([0-9]*\) \(.*\)$/\2 (id \1)/')
+                if [ -z "$added$removed" ]; then ok admin_users "$(grep -c . <<<"$out") admins"
+                else
+                    p admin_users "administrators changed:${added:+ added $(oneline 10 <<<"$added")}${removed:+ removed $(oneline 10 <<<"$removed")}"
+                    # Baseline moves on after the alert went out (nightly mode only).
+                    [ "$MODE" = nightly ] && pending+=("$state" "$out")
+                fi
+            fi
+        else
+            p admin_users "wp user list failed"
+        fi
+    fi
+
+    if has content_spike; then
+        if [ "${CONTENT_MAX:-10}" = 0 ]; then skip content_spike "off (monitor_content_max: 0)"
+        elif [ "$db_ok" = 0 ]; then skip content_spike "no database"
+        else
+            local types="'revision','nav_menu_item','customize_changeset','oembed_cache','user_request'"
+            [ "$CONTENT_ATTACHMENTS" = yes ] || types+=",'attachment'"
+            for x in $CONTENT_EXCLUDE_TYPES; do types+=",'${x//[^a-z0-9_-]/}'"; done
+            out=$(wp_php eval '
+                global $wpdb;
+                $rows = $wpdb->get_results("SELECT post_type, COUNT(*) n FROM {$wpdb->posts}
+                    WHERE post_type NOT IN ('"$types"') AND post_status <> \"auto-draft\"
+                      AND IF(post_date_gmt = \"0000-00-00 00:00:00\", post_modified_gmt, post_date_gmt)
+                          > UTC_TIMESTAMP() - INTERVAL 1 DAY
+                    GROUP BY post_type ORDER BY n DESC");
+                if ($wpdb->last_error) { echo "ERR ", $wpdb->last_error; exit; }
+                $t = 0; $s = [];
+                foreach ($rows as $r) { $t += $r->n; $s[] = "$r->post_type:$r->n"; }
+                echo $t, " ", implode(" ", $s);' 2>&1)
+            x=${out%% *}
+            if ! [[ $x =~ ^[0-9]+$ ]]; then p content_spike "query failed: $(oneline 2 <<<"$out")"
+            elif [ "$x" -gt "$CONTENT_MAX" ]; then p content_spike "$x new posts in 24h (limit $CONTENT_MAX):${out#"$x"}"
+            else ok content_spike "$x new in 24h (limit $CONTENT_MAX)"; fi
+        fi
+    fi
 }
 
+if [ "$MODE" != ack ] && [ -z "$ONE" ]; then check_host; fi
 found=0
 for env in "$SITES_ROOT"/*/conf/site.env; do
     [ -e "$env" ] || continue
     dir=$(dirname "$(dirname "$env")")
     [ -z "$ONE" ] || [ "$(basename "$dir")" = "$ONE" ] || continue
     found=1
+    if [ "$MODE" = ack ]; then CHECKS="db_connect admin_users"; fi
+    if [ "$MODE" = files ]; then CHECKS="core_checksums stray_php php_in_writable"; fi
     check_site "$dir"
 done
-[ "$found" = 1 ] || { [ -z "$ONE" ] || { echo "unknown site: $ONE" >&2; exit 2; }; }
+[ "$found" = 1 ] || [ -z "$ONE" ] || { echo "unknown site: $ONE" >&2; exit 2; }
 
-if [ -n "$report" ]; then
-    printf 'wp-monitor found problems:\n%s' "$report"
-    printf 'wp-monitor found problems:\n%s' "$report" | tg-alert
+if [ "$failed" = 1 ]; then
+    if [ "$MODE" = nightly ]; then
+        printf 'wp-monitor found problems:\n%s' "$report" | tg-alert
+        for ((i = 0; i < ${#pending[@]}; i += 2)); do printf '%s\n' "${pending[i+1]}" > "${pending[i]}"; done
+    fi
     exit 1
 fi

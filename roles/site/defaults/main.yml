@@ -17,6 +17,8 @@ site_defaults:
   pm_max_requests: 500
   memory_limit: 256M
   upload_max_filesize: 64M
+  # wp-monitor content_spike: alert above N new posts (any type) in 24 h; 0 = off.
+  monitor_content_max: 10
   # Fresh WordPress when core is missing (tasks/install.yml). Default off:
   # most sites are migrated. Once from the CLI: -e site_wp_install=true.
   wp_install: false

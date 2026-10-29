@@ -1,22 +1,68 @@
 ---
-# Nightly integrity checks per site (/srv/sites/*/conf/site.env).
-# One combined tg-alert per run, only when something is wrong.
+# Nightly checks per host and per site (/srv/sites/*/conf/site.env), one script:
+# /usr/local/sbin/wp-monitor. One combined tg-alert per run, only when something fails.
+# On demand, read-only, PASS/FAIL lines: wp-monitor --check, or playbooks/verify.yml.
 # Checks (all on by default):
-#   core_checksums    wp core verify-checksums
-#   plugin_checksums  wp plugin verify-checksums --all (wordpress.org plugins only;
-#                     others are skipped by wp-cli, not reported)
-#   git_status        git status --porcelain in htdocs (baseline on first run, see wp-git-commit)
+#   host_services     nginx, mariadb, valkey-server active; nginx -t
+#   disk_space        /, /srv/sites, /var have wp_monitor_disk_min_free_pct free
+#   db_connect        WordPress reaches its database (SELECT 1 via $wpdb)
+#   http_home         https://<domain>/ via 127.0.0.1 returns 200
+#   fpm_pool          FPM service up, pool socket exists, uncached request returns 200
+#   cert_expiry       LE certificate: served by nginx, valid > wp_monitor_cert_min_days
+#                     (no LE certificate = SKIP, site stays on snakeoil)
+#   valkey            redis: true sites: SET/GET/DEL with the site's ACL user
+#   core_checksums    wp core verify-checksums --include-root: modified/missing core files,
+#                     extra files in wp-admin/ and wp-includes/, extra PHP files in the root
+#   plugin_checksums  wp plugin verify-checksums --all (wordpress.org plugins only)
+#   stray_php         PHP directly in wp-content (except wp_monitor_dropins),
+#                     hidden .*.php and .user.ini anywhere
 #   php_in_writable   *.php / *.phtml / *.phar in uploads, cache, upgrade
-#   admin_users       administrators vs stored list (accept: wp-monitor --ack <domain>)
-#   http_home         https://<domain>/ via 127.0.0.1 must return 200
+#   git_status        uncommitted or untracked files in htdocs (baseline: wp-git-commit)
+#   admin_users       administrators (id + login) vs baseline: added/removed = alert,
+#                     baseline follows after the alert
+#   content_spike     more than monitor_content_max (site key, default 10) posts of any
+#                     type created in 24 h; 0 = off for the site
 wp_monitor_on_calendar: "*-*-* 04:30:00"
 wp_monitor_state_dir: /var/lib/wp-monitor
 wp_monitor_bin: /usr/local/sbin/wp-monitor
 wp_monitor_wpcli: /usr/local/bin/wp
 wp_monitor_checks:
+  - host_services
+  - disk_space
+  - db_connect
+  - http_home
+  - fpm_pool
+  - cert_expiry
+  - valkey
   - core_checksums
   - plugin_checksums
-  - git_status
+  - stray_php
   - php_in_writable
+  - git_status
   - admin_users
-  - http_home
+  - content_spike
+wp_monitor_cert_min_days: 14
+wp_monitor_disk_min_free_pct: 10
+# PHP files allowed directly in wp-content.
+wp_monitor_dropins:
+  - index.php
+  - object-cache.php
+  - advanced-cache.php
+  - db.php
+  - db-error.php
+  - maintenance.php
+  - php-error.php
+  - fatal-error-handler.php
+  - sunrise.php
+  - install.php
+  - blog-deleted.php
+  - blog-inactive.php
+  - blog-suspended.php
+# content_spike: never counted: revision, nav_menu_item, customize_changeset,
+# oembed_cache, user_request, auto-drafts. Extra types to ignore (shop orders):
+wp_monitor_content_exclude_types:
+  - shop_order
+  - shop_order_refund
+  - shop_order_placehold
+# Count media uploads too.
+wp_monitor_content_attachments: false
