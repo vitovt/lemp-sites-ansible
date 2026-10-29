@@ -7,6 +7,7 @@ certbot_cloudflare_enabled: true
 certbot_cloudflare_packages:
   - certbot
   - python3-certbot-dns-cloudflare
+  - bind9-dnsutils   # dig, for the DNS check after a failed request
 # Scoped API token (Zone:DNS:Edit). Missing file = role skips with a warning.
 certbot_cloudflare_credentials_src: "{{ secrets_dir }}/cloudflare.ini"
 certbot_cloudflare_credentials: /etc/letsencrypt/cloudflare.ini
@@ -17,3 +18,7 @@ certbot_cloudflare_email: ""
 certbot_cloudflare_deploy_hook: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
 # Extra certbot flags, e.g. ["--test-cert"] for the staging CA.
 certbot_cloudflare_extra_args: []
+# A failed request does not stop the play: warning + DNS check + tg-alert,
+# the site keeps its current certificate (snakeoil for a new site).
+# Public resolver for the DNS check.
+certbot_cloudflare_dns_resolver: 1.1.1.1

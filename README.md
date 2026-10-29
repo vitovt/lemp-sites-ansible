@@ -268,6 +268,13 @@ runuser -u <user> -- env HOME=/tmp php<ver> /usr/local/bin/wp --path=<htdocs> re
 Оновлення: `certbot.timer` з пакета. Deploy hook: `nginx -t` і `systemctl reload nginx`.
 Vhost переходить на сертифікат LE під час того ж запуску (роль `site` іде після).
 
+Помилка запиту не зупиняє play. Сайт лишається на поточному сертифікаті (новий сайт — snakeoil).
+Роль показує WARNING з останніми рядками certbot і DNS-перевіркою кожного імені через
+`dig @1.1.1.1`: зона, чи NS у Cloudflare, A-записи. Потім надсилає `tg-alert`.
+Невдалий запит не рахується як `changed`. Наступний запуск пробує знову (ліміт LE: 5 невдалих
+перевірок на ім'я за годину). Після виправлення DNS або токена:
+`ansible-playbook playbooks/site.yml -t certbot_cloudflare,site -e wp_site_only=<d>`.
+
 ## Telegram (telegram_alert)
 
 `/usr/local/sbin/tg-alert "текст"` або `... | tg-alert`.
