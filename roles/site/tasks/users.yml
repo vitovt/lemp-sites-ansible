@@ -2,6 +2,33 @@
 # Owner <user>: owns the code. No login (no SSH/SFTP for site owners).
 # Runtime <user>-php: runs PHP-FPM, primary group <user>.
 # www-data joins group <user> to read static files.
+- name: Read an existing site owner
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ site_cfg.user }}"
+    fail_key: false
+
+- name: Refuse to adopt another system account
+  ansible.builtin.assert:
+    that:
+      - site_cfg.user not in ['root', 'admin', 'default', 'mysql', 'valkey', 'nobody', 'daemon']
+      - ansible_facts.getent_passwd[site_cfg.user] is none or (ansible_facts.getent_passwd[site_cfg.user][4] == site_cfg.path and site_env_stat.stat.exists)
+      - ansible_facts.getent_passwd[site_cfg.user] is none or ansible_facts.getent_passwd[site_cfg.user][1] | int > 0
+    fail_msg: "The account is not owned by this managed site."
+
+- name: Read an existing PHP runtime account
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ site_cfg.user }}-php"
+    fail_key: false
+
+- name: Refuse to adopt another runtime account
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.getent_passwd[site_cfg.user ~ '-php'] is none or (ansible_facts.getent_passwd[site_cfg.user ~ '-php'][4] == site_cfg.path and site_env_stat.stat.exists)
+      - ansible_facts.getent_passwd[site_cfg.user ~ '-php'] is none or ansible_facts.getent_passwd[site_cfg.user ~ '-php'][1] | int > 0
+    fail_msg: "The PHP runtime account is not owned by this managed site."
+
 - name: Create site group
   ansible.builtin.group:
     name: "{{ site_cfg.user }}"

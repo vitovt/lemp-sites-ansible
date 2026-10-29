@@ -1,18 +1,31 @@
 ---
 # Optional fresh WordPress (default off: most sites are migrated).
 # Per site: wp_install: true; once from the CLI: -e site_wp_install=true -e wp_site_only=<d>
-# Runs only while wp-includes/version.php is missing.
+# Each stage checks its own state so a failed installation can resume.
 - name: Check for WordPress core ({{ site_cfg.domain }})
   ansible.builtin.stat:
     path: "{{ site_cfg.path }}/htdocs/wp-includes/version.php"
   register: site_core_stat
 
-- name: Install WordPress ({{ site_cfg.domain }})
+- name: Check an interrupted fresh installation
+  ansible.builtin.stat:
+    path: "{{ site_cfg.path }}/conf/install-in-progress"
+  register: site_install_intent
+
+- name: Record a fresh installation before download
+  ansible.builtin.copy:
+    content: "fresh installation\n"
+    dest: "{{ site_cfg.path }}/conf/install-in-progress"
+    owner: root
+    group: root
+    mode: "0600"
   when: not site_core_stat.stat.exists
+
+- name: Install WordPress ({{ site_cfg.domain }})
   vars:
     site_wp: >-
-      {{ ['runuser', '-u', site_cfg.user, '--', 'env', 'HOME=/tmp',
-          'php' ~ site_cfg.php_version, '/usr/local/bin/wp', '--path=' ~ site_cfg.path ~ '/htdocs'] }}
+      {{ ['runuser', '-u', site_cfg.user, '--', 'env', 'HOME=' ~ site_cfg.path ~ '/owner-tmp', 'WP_CLI_CACHE_DIR=' ~ site_cfg.path ~ '/owner-tmp/wp-cli-cache',
+          'php' ~ site_cfg.php_version, '/usr/local/bin/wp', '--path=' ~ site_cfg.path ~ '/htdocs', '--skip-plugins', '--skip-themes'] }}
   block:
     # wp-cli checks the md5 of the archive. --skip-content: the full package is a
     # tar.gz that wp-cli 2.12 (PharData) extracts with paths cut at 100 chars
@@ -23,6 +36,7 @@
         argv: >-
           {{ site_wp + ['core', 'download', '--skip-content',
              '--locale=' ~ site_cfg.wp_locale, '--version=' ~ site_cfg.wp_version] }}
+      when: not site_core_stat.stat.exists
       changed_when: true
 
     - name: Verify core checksums ({{ site_cfg.domain }})
@@ -54,6 +68,37 @@
       changed_when: true
       no_log: true
 
+    - name: Create initial monitoring state
+      ansible.builtin.file:
+        path: /var/lib/wp-monitor
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Read the administrator ID of a new installation
+      ansible.builtin.command:
+        argv: "{{ site_wp + ['user', 'get', site_cfg.wp_admin_user, '--field=ID'] }}"
+      register: site_new_admin
+      when: site_wp_installed.rc != 0 or site_install_intent.stat.exists
+      changed_when: false
+
+    - name: Save the expected administrator for a new installation
+      ansible.builtin.copy:
+        content: "{{ site_new_admin.stdout | trim }} {{ site_cfg.wp_admin_user }}\n"
+        dest: "/var/lib/wp-monitor/{{ site_cfg.domain }}.admins"
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      when: site_wp_installed.rc != 0 or site_install_intent.stat.exists
+
+    - name: Check the default theme
+      ansible.builtin.command:
+        argv: "{{ site_wp + ['theme', 'list', '--status=active', '--field=name'] }}"
+      register: site_active_theme
+      changed_when: false
+
     - name: Read the default theme ({{ site_cfg.domain }})
       ansible.builtin.command:
         argv: "{{ site_wp + ['eval', 'echo WP_DEFAULT_THEME;'] }}"
@@ -63,14 +108,37 @@
     - name: Install the default theme ({{ site_cfg.domain }})
       ansible.builtin.command:
         argv: "{{ site_wp + ['theme', 'install', site_wp_theme.stdout | trim, '--activate'] }}"
+      when: site_active_theme.stdout | trim | length == 0
       changed_when: true
 
     - name: Reset modes after install ({{ site_cfg.domain }})
       ansible.builtin.command:
         argv: [/usr/local/sbin/site-fix-perms, "{{ site_cfg.domain }}"]
+      when: site_wp_installed.rc != 0
       changed_when: true
 
     - name: Git baseline after install ({{ site_cfg.domain }})
       ansible.builtin.command:
         argv: [/usr/local/sbin/wp-git-commit, "{{ site_cfg.domain }}", "WordPress install"]
+        creates: "{{ site_cfg.path }}/htdocs/.git"
+      when: not site_core_stat.stat.exists or site_install_intent.stat.exists
+      register: site_initial_baseline
+
+    - name: Mark the completed WordPress installation
+      ansible.builtin.copy:
+        content: "installed\n"
+        dest: "{{ site_cfg.path }}/conf/wordpress-installed"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Set modes on the initial git baseline
+      ansible.builtin.command:
+        argv: [/usr/local/sbin/site-fix-perms, "{{ site_cfg.domain }}"]
+      when: site_initial_baseline is changed  # noqa: no-handler (per-site state)
       changed_when: true
+
+    - name: Clear the completed installation intent
+      ansible.builtin.file:
+        path: "{{ site_cfg.path }}/conf/install-in-progress"
+        state: absent

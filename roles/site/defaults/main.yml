@@ -7,7 +7,6 @@ site_defaults:
   php_version: "{{ php_default_version }}"
   aliases: []
   staging: false
-  smtp: false
   cache: true
   redis: true
   xmlrpc: false

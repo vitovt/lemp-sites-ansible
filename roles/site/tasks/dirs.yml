@@ -23,6 +23,7 @@
     - { path: conf/nginx, owner: root, group: root, mode: "0755" }
     - { path: logs, owner: "{{ site_cfg.user }}", group: "{{ site_cfg.user }}", mode: "2770" }
     - { path: tmp, owner: "{{ site_cfg.user }}-php", group: "{{ site_cfg.user }}", mode: "0700" }
+    - { path: owner-tmp, owner: "{{ site_cfg.user }}", group: "{{ site_cfg.user }}", mode: "0700" }
     - { path: backup, owner: root, group: root, mode: "0700" }
   loop_control:
     label: "{{ item.path }}"

@@ -7,6 +7,14 @@
     quiet: true
   when: wp_site_only | length > 0
 
+- name: Create the shared site root
+  ansible.builtin.file:
+    path: "{{ site_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Helper scripts
   ansible.builtin.import_tasks: tools.yml
 

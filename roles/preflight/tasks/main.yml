@@ -28,11 +28,19 @@
       {%-         set _ = e.append(domain ~ ': bad user "' ~ user ~ '" ([a-z][a-z0-9_]*, max ' ~ site_user_max_len | default(28) ~ ')') -%}
       {%-       endif -%}
       {%-       if db is not match('^[a-z][a-z0-9_]*$') or db | length > 64 -%}{%- set _ = e.append(domain ~ ': bad db_name "' ~ db ~ '"') -%}{%- endif -%}
-      {%-       if user in ['root', 'admin', 'default', 'mysql', 'valkey', 'nobody', 'daemon'] -%}{%- set _ = e.append(domain ~ ': reserved user ' ~ user) -%}{%- endif -%}
-      {%-       if db in ['mysql', 'sys', 'information_schema', 'performance_schema', 'test', 'root'] -%}{%- set _ = e.append(domain ~ ': reserved database ' ~ db) -%}{%- endif -%}
-      {%-       if (cfg.php_version | default(php_default_version) | string) not in (php_supported_versions | default(['8.3', '8.4', '8.5'])) -%}{%- set _ = e.append(domain ~ ': unsupported PHP version') -%}{%- endif -%}
+      {%-       if user in ['root', 'admin', 'default', 'mysql', 'valkey', 'nobody', 'daemon'] -%}
+        {%- set _ = e.append(domain ~ ': reserved user ' ~ user) -%}
+      {%- endif -%}
+      {%-       if db in ['mysql', 'sys', 'information_schema', 'performance_schema', 'test', 'root'] -%}
+        {%- set _ = e.append(domain ~ ': reserved database ' ~ db) -%}
+      {%- endif -%}
+      {%-       if (cfg.php_version | default(php_default_version) | string) not in (php_supported_versions | default(['8.3', '8.4', '8.5'])) -%}
+        {%- set _ = e.append(domain ~ ': unsupported PHP version') -%}
+      {%- endif -%}
       {%-       for k in ['pm_max_children', 'pm_max_requests', 'monitor_content_max'] -%}
-      {%-         if k in cfg and (cfg[k] is not integer or cfg[k] < 0 or (k == 'pm_max_children' and cfg[k] == 0)) -%}{%- set _ = e.append(domain ~ ': invalid ' ~ k) -%}{%- endif -%}
+      {%-         if k in cfg and (cfg[k] is not integer or cfg[k] < 0 or (k == 'pm_max_children' and cfg[k] == 0)) -%}
+          {%- set _ = e.append(domain ~ ': invalid ' ~ k) -%}
+        {%- endif -%}
       {%-       endfor -%}
       {%-       if user in users -%}{%- set _ = e.append(domain ~ ': user "' ~ user ~ '" used twice') -%}{%- endif -%}
       {%-       if db in dbs -%}{%- set _ = e.append(domain ~ ': db_name "' ~ db ~ '" used twice') -%}{%- endif -%}
@@ -48,7 +56,7 @@
       {%-         if n in names -%}{%- set _ = e.append(domain ~ ': name "' ~ n ~ '" used twice') -%}{%- endif -%}
       {%-         set _ = names.append(n) -%}
       {%-       endfor -%}
-      {%-       for k in ['cache', 'redis', 'xmlrpc', 'wp_install'] -%}
+      {%-       for k in ['cache', 'redis', 'xmlrpc', 'wp_install', 'staging'] -%}
       {%-         if k in cfg and cfg[k] is not boolean -%}{%- set _ = e.append(domain ~ ': ' ~ k ~ ' must be true/false') -%}{%- endif -%}
       {%-       endfor -%}
       {%-       if (cfg.table_prefix | default('wp_') | string) is not match('^[A-Za-z0-9_]+$') -%}
@@ -179,3 +187,6 @@
     that: (preflight_site_errors + preflight_drift_errors + preflight_host_errors) | length == 0
     fail_msg: "Preflight failed: {{ preflight_site_errors + preflight_drift_errors + preflight_host_errors }}"
     success_msg: "Preflight ok: {{ (wp_sites | default({})) | length }} sites, host checks passed."
+
+- name: Check existing secrets and database settings
+  ansible.builtin.import_tasks: secrets.yml
