@@ -54,3 +54,6 @@ nginx_fastcgi_cache_valid: 30m
 # Rate limit for wp-login.php and xmlrpc.php (per client IP).
 nginx_login_rate: 6r/m
 nginx_login_burst: 5
+
+# Direct mode exposes IPv6. Open public IPv4 only when required.
+nginx_public_ipv4: false
