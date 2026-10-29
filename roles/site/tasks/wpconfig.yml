@@ -20,3 +20,29 @@
     mode: "0640"
     force: false
   diff: false
+
+# Existing configs: add WP_REDIS_GRACEFUL only if it is missing (a manual
+# value, true or false, is kept). Without it the drop-in returns 500 when
+# Valkey is down.
+- name: Check WP_REDIS_GRACEFUL in wp-config.php
+  ansible.builtin.command:
+    cmd: grep -q WP_REDIS_GRACEFUL {{ site_cfg.path }}/htdocs/wp-config.php
+  register: site_redis_graceful
+  changed_when: false
+  failed_when: site_redis_graceful.rc > 1
+  when: site_cfg.redis | bool
+
+- name: Add WP_REDIS_GRACEFUL to wp-config.php
+  ansible.builtin.lineinfile:
+    path: "{{ site_cfg.path }}/htdocs/wp-config.php"
+    line: "define( 'WP_REDIS_GRACEFUL', true );"
+    insertafter: "WP_REDIS_SELECTIVE_FLUSH"
+  register: site_redis_graceful_add
+  when: site_cfg.redis | bool and site_redis_graceful.rc == 1
+
+- name: Commit wp-config.php change
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/wp-git-commit, "{{ site_cfg.domain }}", "wp-config: WP_REDIS_GRACEFUL"]
+    removes: "{{ site_cfg.path }}/htdocs/.git"
+  changed_when: true
+  when: site_redis_graceful_add is changed

@@ -186,6 +186,8 @@ Salts: 8 випадкових значень по 64 символи.
 - `WP_REDIS_SCHEME` — `unix`, `WP_REDIS_PATH` — socket Valkey.
 - `WP_REDIS_PREFIX` — `<user>:`.
 - `WP_REDIS_USERNAME`, `WP_REDIS_PASSWORD` (`[user, pass]`), `WP_REDIS_SELECTIVE_FLUSH`.
+- `WP_REDIS_GRACEFUL` — true: якщо Valkey впав, сайт працює без object cache, а не дає 500.
+  В існуючі wp-config.php додається, якщо його там нема (ручне значення не змінюється).
 
 Оновлення ядра і плагінів робить адмін через wp-cli:
 
