@@ -128,7 +128,9 @@
   ansible.builtin.command:
     argv:
       - /usr/local/sbin/tg-alert
-      - "{{ inventory_hostname }}: Let's Encrypt failed for {{ item.item.item.item.domain }} (site stays on snakeoil/old cert). DNS: {{ item.stdout_lines | join(' ; ') }}"
+      - >-
+        {{ inventory_hostname }}: Let's Encrypt failed for {{ item.item.item.item.domain }}
+        (site stays on snakeoil/old cert). DNS: {{ item.stdout_lines | join(' ; ') }}
   loop: "{{ certbot_cloudflare_dns.results }}"
   loop_control:
     label: "{{ item.item.item.item.domain }}"
