@@ -152,10 +152,13 @@ Salts: 8 випадкових значень по 64 символи.
 Оновлення ядра і плагінів робить адмін через wp-cli:
 
 ```sh
-runuser -u <user> -- php<версія> /usr/local/bin/wp --path=/srv/sites/<domain>/htdocs plugin update --all
+runuser -u <user> -- env HOME=/tmp php<версія> /usr/local/bin/wp --path=/srv/sites/<domain>/htdocs plugin update --all
+wp-git-commit <domain> "plugin update"
 ```
 
-Використовуйте ту версію PHP, що й pool сайту.
+Використовуйте ту версію PHP, що й pool сайту. `HOME=/tmp`: домашній каталог власника — корінь сайту, він не має права запису.
+`DISALLOW_FILE_MODS` блокує тільки адмінку: wp-cli від власника ставить і оновлює плагіни, теми і ядро
+(перевірено: `plugin install/update`, `theme install`, `core update --version=6.8 --force` і назад на 7.1.4, `core verify-checksums`).
 
 ## Cron
 
@@ -202,9 +205,9 @@ PHP не може видалити ці файли без ACL. ACL ми не в�
 5. Плагін робить запит `https://<domain>/purge/<url>`. Запит іде на локальний nginx, а не на Cloudflare.
 
 Proxmox змінює тільки свій блок у `/etc/hosts` контейнера. Наші рядки лишаються.
-Обмеження: плагін може перевіряти TLS-сертифікат.
-Тоді зі snakeoil-сертифікатом purge не працює. Потрібен сертифікат Let's Encrypt.
-Перевірте purge після першого запуску.
+Обмеження (перевірено на тестовій VM): плагін перевіряє TLS-сертифікат.
+Зі snakeoil purge не працює (`cURL error 60` у `uploads/nginx-helper/nginx.log`), кеш живе до 30 хв.
+Потрібен сертифікат Let's Encrypt. Ручний `curl -k https://<d>/purge/` з хоста працює, ззовні — 403.
 
 ## Valkey і Redis Object Cache
 
@@ -218,6 +221,16 @@ Socket: `/run/valkey/valkey-server.sock`.
 Пароль: `secrets/<host>/valkey/<domain>.pass`.
 `<user>-php` і `<user>` входять у групу `valkey`.
 Зміна ACL (новий сайт) перезапускає Valkey. Кеш усіх сайтів очищається.
+
+Увімкнення object cache: `wp redis enable` (і кнопка Enable в адмінці) не працює —
+плагін (3.0.0) спершу робить `FLUSHDB`, а ACL сайту це забороняє (`@dangerous`).
+Скопіюйте drop-in як власник сайту:
+```sh
+runuser -u <user> -- cp <htdocs>/wp-content/plugins/redis-cache/includes/object-cache.php <htdocs>/wp-content/
+runuser -u <user> -- env HOME=/tmp php<ver> /usr/local/bin/wp --path=<htdocs> redis status   # Connected
+```
+Далі `wp cache flush` працює вибірково (тільки `<user>:*`). Перевірено: чужі ключі,
+`FLUSHDB`, `FLUSHALL`, `KEYS`, `CONFIG` — NOPERM.
 
 ## Let's Encrypt (certbot_cloudflare)
 
@@ -298,34 +311,50 @@ SITE_INVENTORY=inventories/test scripts/site info wptest
 
 ## Тестовий запуск
 
-Ціль: тестовий CT `wptest` (Debian 13 LXC). Ніколи не prod.
-`inventories/test`: сайти `test.local` (PHP 8.4) і `legacy.local` (PHP 7.4),
-certbot вимкнено, `backup_require_mount: false`, nginx приймає будь-якого клієнта,
-свої секрети в `secrets/test/`.
+Ціль: тестова VM `wptest` (ans01-presta, Debian 13, KVM за NAT, тільки IPv4). Ніколи не prod.
+`inventories/test`: сайти `test1.example` (PHP 8.4, alias `www.`) і `test2.example` (PHP 8.3),
+certbot вимкнено (snakeoil), `backup_require_mount: false`, без Telegram (алерти тільки в syslog),
+nginx приймає будь-якого клієнта, свої секрети в `secrets/test/`.
+Root-входу немає: `ansible_user: vitovt`, `ansible_become: true` (sudo без пароля).
+Prod лишається на root по ключу.
 
-1. Впишіть адресу в `inventories/test/hosts.yml` (`ansible_host`, за потреби ProxyJump через ax102).
-2. Два запуски. Другий має дати `changed=0` (або поясніть кожну зміну):
+1. Адреса і порт уже в `inventories/test/hosts.yml`. Змінні середовища:
    ```sh
-   .venv/bin/ansible-playbook -i inventories/test/hosts.yml playbooks/site.yml | tee /tmp/run1.log
-   .venv/bin/ansible-playbook -i inventories/test/hosts.yml playbooks/site.yml | tee /tmp/run2.log
+   export PATH=$PWD/.venv/bin:$PATH SITE_INVENTORY=inventories/test
    ```
-3. Перевірки на CT (ставить WordPress у тестові сайти):
+2. Два запуски. Другий має дати `changed=0`:
    ```sh
-   scp tests/verify.sh root@<wptest>:/root/ && ssh root@<wptest> bash /root/verify.sh
+   ansible-playbook -i inventories/test/hosts.yml playbooks/site.yml | tee /tmp/run1.log
+   ansible-playbook -i inventories/test/hosts.yml playbooks/site.yml | tee /tmp/run2.log
    ```
-   Скрипт перевіряє: `nginx -t`; обидва FPM; MariaDB, Valkey, таймери; HTTP 200 обох сайтів;
-   PHP в `uploads` не виконується; `limit_req` для `wp-login.php`; Valkey з `<user>-php`;
-   `wp-monitor` чистий, після `stray.php` — помилка і запис `tg-alert` у journal;
-   `wp-backup <d>`, повний `wp-backup`, `restic snapshots`.
-4. Клон і видалення (з ноутбука):
+3. Перевірки на VM (ставить WordPress у тестові сайти, `[site]` за замовчуванням `test1.example`):
    ```sh
-   SITE_INVENTORY=inventories/test scripts/site clone wptest test.local clone.local
-   ssh root@<wptest> 'curl -sk --resolve clone.local:443:127.0.0.1 https://clone.local/ | grep -c clone.local'
-   SITE_INVENTORY=inventories/test scripts/site remove wptest clone.local
-   ssh root@<wptest> 'ls /mnt/backups/removed; id clone_local; ls /srv/sites'
+   scp -P 22241 tests/verify.sh vitovt@<vm>: && ssh -p 22241 vitovt@<vm> sudo bash verify.sh
    ```
-5. Вручну: `ansible-playbook ... -t site,site_fix_perms -e wp_site_only=test.local`; `systemctl list-timers`.
-6. Не покрито тестом: справжній LE/Cloudflare, відправка в Telegram, точка монтування бекапу.
+   Скрипт перевіряє: `nginx -t`; FPM, MariaDB, Valkey, таймери; для кожного сайту HTTP 200,
+   редирект http→https, PHP в `uploads` не виконується; `limit_req` для `wp-login.php`;
+   Valkey з `<user>-php`; `wp-monitor` чистий, після `stray.php` — помилка і запис `tg-alert`
+   у syslog; `wp-backup <d>`, повний `wp-backup`, `restic snapshots`.
+   Зовнішній 443 на VM не проброшено: усі HTTP-перевірки йдуть на самій VM через
+   `curl -k --resolve <d>:443:127.0.0.1`.
+4. Додавання, клон і видалення (з ноутбука):
+   ```sh
+   scripts/site add wptest test3.example - 8.4
+   scripts/site clone wptest test1.example test4.example
+   ssh ... "sudo curl -sk --resolve test4.example:443:127.0.0.1 'https://test4.example/?x=1' | grep -c test4.example"
+   scripts/site remove wptest test4.example      # питає домен; архів у /mnt/backups/removed
+   ```
+   Після `wp-cli`-змін (плагіни, ядро) `wp-monitor` скаржиться на git status, поки не
+   виконати `wp-git-commit <d>` — так і задумано.
+5. Відновлення з restic (на VM, root): `set -a; . /etc/restic/env; set +a`,
+   `restic restore latest --tag site:<d> --target /root/r`. Дамп має `CREATE DATABASE`/`USE`
+   (`--databases`): у чужу БД — тільки після `sed -E '/^(CREATE DATABASE|USE )/d'`,
+   інакше він перезапише робочу БД сайту.
+6. Вручну: `ansible-playbook ... -t site,site_fix_perms -e wp_site_only=test1.example`; `systemctl list-timers`.
+7. Не покрито тестом: справжній LE/Cloudflare, відправка в Telegram, точка монтування бекапу,
+   IPv6, особливості LXC.
+   Застереження VM: cloud-init (`manage_etc_hosts`) переписує `/etc/hosts` при перезавантаженні —
+   рядки сайтів (для purge) зникнуть до наступного запуску `site.yml`.
 
 Необов'язково: `scripts/test-local.sh up|run|verify|down` — те саме в локальному docker-контейнері.
 
@@ -334,5 +363,5 @@ certbot вимкнено, `backup_require_mount: false`, nginx приймає б
 - Дзеркало бекапу на Storage Box (restic copy / rclone).
 - `WP_REDIS_SELECTIVE_FLUSH` у документації плагіна позначено «unsupported».
 - Valkey перезапускається при зміні ACL (новий сайт) — кеш усіх сайтів очищається.
-- Purge Nginx Helper зі snakeoil: перевірити після LE.
+- Purge Nginx Helper: перевірити з LE на prod (зі snakeoil не працює, див. вище).
 - CF-Connecting-IP від проксі хоста, `ansible.utils`/netaddr, винятки для коду з правом запису.
