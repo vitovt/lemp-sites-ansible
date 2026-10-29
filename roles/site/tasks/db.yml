@@ -1,4 +1,25 @@
 ---
-# TODO (not written: tool review error). Create the site DB and its DB user here.
-# Plan: README.md, section "Database". Set fact site_db_pass (wpconfig.yml uses it).
-[]
+# Password: generated once on the control node, kept in secrets/ (gitignored).
+- name: Read or create DB password
+  ansible.builtin.set_fact:
+    site_db_pass: >-
+      {{ lookup('ansible.builtin.password',
+         secrets_dir ~ '/' ~ inventory_hostname ~ '/db/' ~ site_cfg.domain ~ '.pass',
+         chars=['ascii_letters', 'digits'], length=32) }}
+  no_log: true
+
+- name: Create site database
+  community.mysql.mysql_db:
+    name: "{{ site_cfg.db_name }}"
+    encoding: utf8mb4
+    collation: utf8mb4_unicode_ci
+    login_unix_socket: "{{ mariadb_socket }}"
+
+- name: Create site DB user
+  community.mysql.mysql_user:
+    name: "{{ site_cfg.db_name }}"
+    host: localhost
+    password: "{{ site_db_pass }}"
+    priv: "{{ site_cfg.db_name }}.*:ALL"
+    login_unix_socket: "{{ mariadb_socket }}"
+  no_log: true

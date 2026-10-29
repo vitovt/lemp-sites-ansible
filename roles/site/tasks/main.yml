@@ -7,6 +7,9 @@
     quiet: true
   when: wp_site_only | length > 0
 
+- name: Helper scripts
+  ansible.builtin.import_tasks: tools.yml
+
 - name: Configure sites
   ansible.builtin.include_tasks: one-site.yml
   loop: >-

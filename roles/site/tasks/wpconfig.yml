@@ -1,4 +1,13 @@
 ---
-# TODO (not written: tool review error). Template wp-config.php.j2 to htdocs/wp-config.php
-# with force: false, owner <user>, group <user>-php... see README.md, section "wp-config.php".
-[]
+# Created once. Later edits by hand (as root, then site_fix_perms).
+# Group <user> lets <user>-php read it; www-data can read it too,
+# but nginx never serves .php source (wp-rules + fastcgi only).
+- name: Create wp-config.php
+  ansible.builtin.template:
+    src: wp-config.php.j2
+    dest: "{{ site_cfg.path }}/htdocs/wp-config.php"
+    owner: "{{ site_cfg.user }}"
+    group: "{{ site_cfg.user }}"
+    mode: "0640"
+    force: false
+  diff: false

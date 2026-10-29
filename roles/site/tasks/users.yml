@@ -1,9 +1,35 @@
 ---
-# TODO (not written: tool review error). Planned tasks:
-#   - group <user>
-#   - code owner <user>: primary group <user>, home = site path, no create_home,
-#     shell /bin/bash, locked password ("!", on_create)
-#   - runtime <user>-php: group <user>, system account, shell /usr/sbin/nologin
-#   - www-data: append to group <user> (nginx reads static files)
-# All later tasks in this role need these accounts; write them before first run.
-[]
+# Owner <user>: owns the code. No login (no SSH/SFTP for site owners).
+# Runtime <user>-php: runs PHP-FPM, primary group <user>.
+# www-data joins group <user> to read static files.
+- name: Create site group
+  ansible.builtin.group:
+    name: "{{ site_cfg.user }}"
+    system: true
+
+- name: Create site owner user
+  ansible.builtin.user:
+    name: "{{ site_cfg.user }}"
+    group: "{{ site_cfg.user }}"
+    home: "{{ site_cfg.path }}"
+    create_home: false
+    shell: /usr/sbin/nologin
+    system: true
+    password: "!"
+
+- name: Create PHP runtime user
+  ansible.builtin.user:
+    name: "{{ site_cfg.user }}-php"
+    group: "{{ site_cfg.user }}"
+    home: "{{ site_cfg.path }}"
+    create_home: false
+    shell: /usr/sbin/nologin
+    system: true
+    password: "!"
+
+- name: Add www-data to site group
+  ansible.builtin.user:
+    name: www-data
+    groups: "{{ site_cfg.user }}"
+    append: true
+  notify: reload nginx

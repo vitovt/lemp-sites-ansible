@@ -37,6 +37,18 @@ server {
     access_log {{ site_cfg.path }}/logs/access.log main;
     error_log {{ site_cfg.path }}/logs/error.log warn;
 
+{% if site_cfg.cache %}
+    # Nginx Helper purge (Purge Method: "Using a GET request to PURGE/url").
+    # Only from this host: WordPress calls https://<domain>/purge/... and
+    # /etc/hosts maps <domain> to 127.0.0.1 (site role, hosts.yml).
+    location ~ ^/purge(/.*)$ {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        fastcgi_cache_purge WORDPRESS "$scheme$request_method$host$1";
+    }
+
+{% endif %}
     include snippets/security-headers.conf;
     include snippets/wp-rules.conf;
 

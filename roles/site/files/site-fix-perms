@@ -1,0 +1,22 @@
+#!/bin/sh
+# Reset owner and modes of a site's htdocs (group model, no ACLs).
+# Usage (as root): site-fix-perms <domain>
+# Code: <user>:<user> dirs 2750, files 0640 (PHP reads, cannot write).
+# PHP-writable dirs: dirs 2770, files 0660.
+set -eu
+domain="${1:?usage: site-fix-perms <domain>}"
+dir="/srv/sites/${domain}/htdocs"
+[ -d "$dir" ] || { echo "no such site: $domain" >&2; exit 1; }
+user="$(stat -c %G "$dir")"
+[ "$user" != root ] || { echo "refusing: $dir group is root" >&2; exit 1; }
+writable="${SITE_WRITABLE_DIRS:-wp-content/uploads wp-content/cache wp-content/upgrade}"
+
+chown -R -h "$user:$user" "$dir"
+find "$dir" -type d -exec chmod 2750 {} +
+find "$dir" -type f -exec chmod 0640 {} +
+for w in $writable; do
+    [ -d "$dir/$w" ] || continue
+    find "$dir/$w" -type d -exec chmod 2770 {} +
+    find "$dir/$w" -type f -exec chmod 0660 {} +
+done
+echo "fixed: $dir (owner $user)"

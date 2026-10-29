@@ -1,0 +1,12 @@
+---
+# Admin helpers for root. Not reachable by site users (nologin).
+- name: Install site helper scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - wp-git-commit
+    - site-fix-perms

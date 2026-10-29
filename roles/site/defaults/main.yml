@@ -34,3 +34,6 @@ site_user_max_len: 28
 
 # Real cron: wp cron runs every N minutes (DISABLE_WP_CRON is set).
 site_cron_minute: "*/5"
+
+# wp-config.php salts (new file only; random 64 chars each).
+site_wp_salt_names: [AUTH_KEY, SECURE_AUTH_KEY, LOGGED_IN_KEY, NONCE_KEY, AUTH_SALT, SECURE_AUTH_SALT, LOGGED_IN_SALT, NONCE_SALT]

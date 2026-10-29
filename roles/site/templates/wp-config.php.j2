@@ -1,0 +1,36 @@
+<?php
+/**
+ * {{ site_cfg.domain }}. Created by Ansible once (force: false).
+ * Ansible does not overwrite this file.
+ */
+define( 'DB_NAME', '{{ site_cfg.db_name }}' );
+define( 'DB_USER', '{{ site_cfg.db_name }}' );
+define( 'DB_PASSWORD', '{{ site_db_pass }}' );
+define( 'DB_HOST', 'localhost:{{ mariadb_socket }}' );
+define( 'DB_CHARSET', 'utf8mb4' );
+define( 'DB_COLLATE', '' );
+
+{% for key in site_wp_salt_names %}
+define( '{{ key }}', '{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=64) }}' );
+{% endfor %}
+
+$table_prefix = '{{ site_cfg.table_prefix }}';
+
+define( 'DISABLE_WP_CRON', true );
+define( 'DISALLOW_FILE_EDIT', true );
+define( 'DISALLOW_FILE_MODS', true );
+define( 'AUTOMATIC_UPDATER_DISABLED', true );
+define( 'WP_DEBUG', false );
+{% if site_cfg.redis %}
+
+// Redis Object Cache plugin -> Valkey (Redis protocol), unix socket.
+define( 'WP_REDIS_SCHEME', 'unix' );
+define( 'WP_REDIS_PATH', '{{ valkey_socket | default('/run/valkey/valkey-server.sock') }}' );
+define( 'WP_REDIS_PREFIX', '{{ site_cfg.user }}:' );
+// TODO: WP_REDIS_USERNAME / WP_REDIS_PASSWORD (per-site ACL user) when the valkey role is done.
+{% endif %}
+
+if ( ! defined( 'ABSPATH' ) ) {
+	define( 'ABSPATH', __DIR__ . '/' );
+}
+require_once ABSPATH . 'wp-settings.php';

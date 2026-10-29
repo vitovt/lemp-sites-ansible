@@ -31,5 +31,15 @@
   ansible.builtin.include_tasks: wpconfig.yml
 - name: Nginx vhost ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: vhost.yml
+- name: Local name for cache purge ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: hosts.yml
 - name: Cron and logrotate ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: cron.yml
+
+# On demand only (needs both tags, "site" runs the includes):
+#   ansible-playbook playbooks/site.yml -t site,site_fix_perms -e wp_site_only=<domain>
+- name: Reset htdocs owner and modes ({{ site_cfg.domain }})
+  ansible.builtin.command:
+    cmd: "/usr/local/sbin/site-fix-perms {{ site_cfg.domain }}"
+  changed_when: true
+  tags: [never, site_fix_perms]

@@ -1,4 +1,27 @@
 ---
-# TODO (not written: tool review error). Real cron for WP-Cron + logrotate.
-# See README.md, section "Cron".
-[]
+# Real cron instead of WP-Cron (wp-config.php sets DISABLE_WP_CRON).
+- name: Disable cron mail for site
+  community.general.cronvar:
+    name: MAILTO
+    value: '""'
+    cron_file: "wp-{{ site_cfg.user }}"
+    user: root
+
+- name: Run due WP-Cron events
+  ansible.builtin.cron:
+    name: "wp-cron {{ site_cfg.domain }}"
+    cron_file: "wp-{{ site_cfg.user }}"
+    user: "{{ site_cfg.user }}-php"
+    minute: "{{ site_cron_minute }}"
+    job: >-
+      cd {{ site_cfg.path }}/htdocs &&
+      /usr/bin/php{{ site_cfg.php_version }} {{ php_wpcli_path }} cron event run --due-now --quiet
+      >> {{ site_cfg.path }}/logs/cron.log 2>&1
+
+- name: Install site logrotate config
+  ansible.builtin.template:
+    src: logrotate.j2
+    dest: "/etc/logrotate.d/wp-{{ site_cfg.user }}"
+    owner: root
+    group: root
+    mode: "0644"

@@ -1,4 +1,37 @@
 ---
-# TODO (not written: tool review error). Create the site dirs here.
-# Layout, owners and modes: see README.md, section "Site layout".
-[]
+# Layout and modes: README.md, section "Site layout". Group permissions, no ACLs.
+# setgid (2xxx) keeps group <user> on new files.
+- name: Create site base dir
+  ansible.builtin.file:
+    path: "{{ site_cfg.path }}"
+    state: directory
+    owner: root
+    group: "{{ site_cfg.user }}"
+    mode: "0750"
+
+- name: Create site dirs
+  ansible.builtin.file:
+    path: "{{ site_cfg.path }}/{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: htdocs, owner: "{{ site_cfg.user }}", group: "{{ site_cfg.user }}", mode: "2750" }
+    - { path: htdocs/wp-content, owner: "{{ site_cfg.user }}", group: "{{ site_cfg.user }}", mode: "2750" }
+    - { path: conf, owner: root, group: root, mode: "0755" }
+    - { path: conf/nginx, owner: root, group: root, mode: "0755" }
+    - { path: logs, owner: "{{ site_cfg.user }}", group: "{{ site_cfg.user }}", mode: "2770" }
+    - { path: tmp, owner: "{{ site_cfg.user }}-php", group: "{{ site_cfg.user }}", mode: "0700" }
+    - { path: backup, owner: root, group: root, mode: "0700" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Create PHP-writable dirs
+  ansible.builtin.file:
+    path: "{{ site_cfg.path }}/htdocs/{{ item }}"
+    state: directory
+    owner: "{{ site_cfg.user }}"
+    group: "{{ site_cfg.user }}"
+    mode: "2770"
+  loop: "{{ site_writable_dirs }}"

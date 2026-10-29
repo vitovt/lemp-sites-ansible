@@ -1,0 +1,23 @@
+#!/bin/sh
+# Snapshot a site's htdocs into a local git repo (no remote).
+# Usage (as root): wp-git-commit <domain> [message]
+# wp_monitor reads "git status" to find changed code.
+set -eu
+domain="${1:?usage: wp-git-commit <domain> [message]}"
+msg="${2:-snapshot $(date -Iseconds)}"
+dir="/srv/sites/${domain}/htdocs"
+[ -d "$dir" ] || { echo "no such site: $domain" >&2; exit 1; }
+owner="$(stat -c %U "$dir")"
+run() { runuser -u "$owner" -- git -C "$dir" "$@"; }
+if [ ! -d "$dir/.git" ]; then
+    run init -q
+    printf '%s\n' wp-content/uploads/ wp-content/cache/ wp-content/upgrade/ \
+        | runuser -u "$owner" -- tee -a "$dir/.git/info/exclude" >/dev/null
+fi
+run add -A
+if run diff --cached --quiet; then
+    echo "no changes"
+    exit 0
+fi
+run -c user.name=wp-git-commit -c user.email=root@localhost commit -q -m "$msg"
+run log -1 --oneline
