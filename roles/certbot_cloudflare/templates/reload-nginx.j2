@@ -1,0 +1,6 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# certbot deploy hook: runs after each successful renewal.
+set -e
+nginx -t -q
+systemctl reload nginx

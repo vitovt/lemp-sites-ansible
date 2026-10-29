@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   author: Sysadmin bot
-  description: "Let's Encrypt certs via Cloudflare DNS-01 (STUB)"
+  description: "Let's Encrypt certs via Cloudflare DNS-01"
   license: MIT
   min_ansible_version: "2.16"
   platforms:

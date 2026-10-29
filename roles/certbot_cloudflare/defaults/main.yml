@@ -1,7 +1,9 @@
 ---
-# STUB. Interface for certbot_cloudflare (DNS-01 via Cloudflare API).
-# Runs before the site role. The site vhost uses
-# /etc/letsencrypt/live/<domain>/ if it exists, else snakeoil.
+# Let's Encrypt via DNS-01 (Cloudflare API), one certificate per site:
+# cert name = domain, names = domain + aliases. Runs before the site role;
+# the vhost uses /etc/letsencrypt/live/<domain>/ when it exists, else snakeoil.
+# false = skip the whole role (local tests, hosts without Cloudflare).
+certbot_cloudflare_enabled: true
 certbot_cloudflare_packages:
   - certbot
   - python3-certbot-dns-cloudflare
@@ -9,6 +11,9 @@ certbot_cloudflare_packages:
 certbot_cloudflare_credentials_src: "{{ secrets_dir }}/cloudflare.ini"
 certbot_cloudflare_credentials: /etc/letsencrypt/cloudflare.ini
 certbot_cloudflare_propagation_seconds: 30
+# Empty = register without email (no expiry mails from Let's Encrypt).
 certbot_cloudflare_email: ""
-# Deploy hook reloads nginx after renewal.
-certbot_cloudflare_deploy_hook: "systemctl reload nginx"
+# Renewal deploy hook (certbot.timer from the Debian package renews).
+certbot_cloudflare_deploy_hook: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
+# Extra certbot flags, e.g. ["--test-cert"] for the staging CA.
+certbot_cloudflare_extra_args: []

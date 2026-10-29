@@ -1,0 +1,73 @@
+---
+- name: Install certbot with Cloudflare DNS plugin
+  ansible.builtin.apt:
+    name: "{{ certbot_cloudflare_packages }}"
+    state: present
+    cache_valid_time: 3600
+
+- name: Install Cloudflare credentials (root only)
+  ansible.builtin.copy:
+    src: "{{ certbot_cloudflare_credentials_src }}"
+    dest: "{{ certbot_cloudflare_credentials }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Install renewal deploy hook
+  ansible.builtin.template:
+    src: reload-nginx.j2
+    dest: "{{ certbot_cloudflare_deploy_hook }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Enable renewal timer
+  ansible.builtin.systemd_service:
+    name: certbot.timer
+    enabled: true
+    state: started
+
+# Same selection as the site role (wp_site_only = one site).
+- name: List certificates to manage
+  ansible.builtin.set_fact:
+    certbot_cloudflare_certs: >-
+      {%- set out = [] -%}
+      {%- for domain, cfg in (wp_sites | default({})).items() -%}
+      {%- if not (wp_site_only | default('')) or wp_site_only == domain -%}
+      {%- set _ = out.append({'domain': domain, 'names': [domain] + ((cfg | default({}, true)).aliases | default([]))}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Read names in existing certificates
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      openssl x509 -in /etc/letsencrypt/live/{{ item.domain }}/cert.pem -noout -ext subjectAltName
+      | grep -o 'DNS:[^,]*' | cut -d: -f2 | sort
+    executable: /bin/bash
+  loop: "{{ certbot_cloudflare_certs }}"
+  loop_control:
+    label: "{{ item.domain }}"
+  register: certbot_cloudflare_current
+  changed_when: false
+  failed_when: false
+
+# New cert, or names changed (alias added/removed). Renewal is certbot.timer's job.
+- name: Request certificate (DNS-01)
+  ansible.builtin.command:
+    argv: >-
+      {{ ['certbot', 'certonly', '--non-interactive', '--agree-tos',
+          '--dns-cloudflare',
+          '--dns-cloudflare-credentials', certbot_cloudflare_credentials,
+          '--dns-cloudflare-propagation-seconds', certbot_cloudflare_propagation_seconds | string,
+          '--cert-name', item.item.domain]
+         + (['--email', certbot_cloudflare_email] if certbot_cloudflare_email else ['--register-unsafely-without-email'])
+         + certbot_cloudflare_extra_args
+         + ['-d', item.item.names | unique | join(',')] }}
+  loop: "{{ certbot_cloudflare_current.results }}"
+  loop_control:
+    label: "{{ item.item.domain }}"
+  when: (item.stdout_lines | default([]) | sort) != (item.item.names | unique | sort)
+  changed_when: true
