@@ -42,7 +42,7 @@
     group: valkey
     mode: "0640"
   diff: false
-  notify: Restart valkey
+  notify: Load Valkey ACL
 
 - name: Store admin password for root
   ansible.builtin.copy:
