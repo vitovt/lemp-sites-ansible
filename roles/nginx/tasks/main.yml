@@ -66,4 +66,5 @@
 - name: Disable Debian default site
   ansible.builtin.import_tasks: debian-default.yml
 
-# TODO: ensure nginx service started+enabled (Debian does this on install).
+- name: Nginx service
+  ansible.builtin.import_tasks: service.yml

@@ -2,6 +2,8 @@
 nginx_packages:
   - nginx
   - ssl-cert
+  # ngx_cache_purge: Nginx Helper purge method "GET /purge/<url>".
+  - libnginx-mod-http-cache-purge
 nginx_worker_connections: 2048
 nginx_client_max_body_size: 64m
 nginx_server_tokens: "off"

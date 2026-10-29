@@ -1,0 +1,10 @@
+---
+- name: Enable nginx at boot
+  ansible.builtin.service:
+    name: nginx
+    enabled: true
+
+- name: Make sure nginx runs
+  ansible.builtin.service:
+    name: nginx
+    state: started
