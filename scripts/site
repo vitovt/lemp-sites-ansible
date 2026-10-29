@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# DRAFT. Site CLI for this repo. Runs on the admin laptop, not on the server.
+# Site CLI for this repo. Runs on the admin laptop, not on the server.
 # Usage:
 #   scripts/site add <host> <domain> [user|-] [php_version] [--dry-run]
 #     user "-" or empty = role default (domain with . and - as _)
 #   scripts/site info <host> [domain]
-#   scripts/site remove|clone ...   (stubs, see playbooks/)
+#   scripts/site remove <host> <domain>                 backup, archive, remove
+#   scripts/site clone <host> <from> <to> [user|-]      new site <to> = copy of <from>
+# Inventory: SITE_INVENTORY=inventories/test scripts/site ...  (default inventories/prod)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+INV=${SITE_INVENTORY:-inventories/prod}
+INV=${INV%/}
 
 die() { echo "error: $*" >&2; exit 1; }
 DRY=0
@@ -14,7 +18,7 @@ args=()
 for a in "$@"; do [[ $a == --dry-run ]] && DRY=1 || args+=("$a"); done
 set -- "${args[@]}"
 
-valid_host()   { [[ -d inventories/prod/host_vars/$1 ]] || die "unknown host: $1"; }
+valid_host()   { [[ -d $INV/host_vars/$1 ]] || die "unknown host: $1"; }
 valid_domain() { [[ $1 =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "bad domain: $1"; }
 # Same rule as the site role: [a-z][a-z0-9_]*, max 28 (site_user_max_len).
 valid_user()   { [[ $1 =~ ^[a-z][a-z0-9_]{1,27}$ ]] || die "bad user ([a-z][a-z0-9_], 2-28): $1"; }
@@ -28,7 +32,7 @@ cmd_add() {
   valid_host "$host"; valid_domain "$domain"
   [[ $user == - ]] && user=$(default_user "$domain")
   valid_user "$user"
-  f=inventories/prod/host_vars/$host/sites.yml
+  f=$INV/host_vars/$host/sites.yml
   grep -q "^  ${domain}:" "$f" && die "$domain already in $f"
   grep -q "user: ${user}\$" "$f" && die "user $user already used in $f"
   # wp_sites must stay the last top-level key in sites.yml.
@@ -38,22 +42,60 @@ cmd_add() {
   ((DRY)) && { echo "(dry-run) not written"; return; }
   confirm "Add $domain to $f and converge $host?"
   printf '%s\n' "$entry" >> "$f"
-  ansible-playbook playbooks/site.yml --limit "$host" -e "wp_site_only=$domain"
+  ansible-playbook -i "$INV" playbooks/site.yml --limit "$host" -e "wp_site_only=$domain"
 }
 
 cmd_info() {
   [[ $# -ge 1 ]] || die "usage: info <host> [domain]"
   valid_host "$1"
-  local f=inventories/prod/host_vars/$1/sites.yml
+  local f=$INV/host_vars/$1/sites.yml
   if [[ $# -ge 2 ]]; then awk -v d="  $2:" '$0==d{p=1;print;next} p&&/^  [^ ]/{p=0} p' "$f"
   else grep -E '^  [a-z0-9.-]+:$' "$f" | tr -d ' :'; fi
 }
 
-cmd_stub() { die "'$1' is not implemented yet (TODO, see playbooks/site-$1.yml)"; }
+site_php() {  # php_version of <domain> in sites.yml (empty = role default)
+  cmd_info "$1" "$2" | sed -n 's/^ *php_version: *"\{0,1\}\([0-9.]*\)"\{0,1\}$/\1/p'
+}
+
+cmd_remove() {
+  [[ $# -eq 2 ]] || die "usage: remove <host> <domain>"
+  local host=$1 domain=$2 f r
+  valid_host "$host"; valid_domain "$domain"
+  f=$INV/host_vars/$host/sites.yml
+  echo "This backs up, archives and REMOVES $domain on $host (files, DB, users, vhost)."
+  ((DRY)) && { echo "(dry-run) nothing done"; return; }
+  read -r -p "Type the domain to confirm: " r
+  [[ $r == "$domain" ]] || die "aborted"
+  ansible-playbook -i "$INV" playbooks/site-remove.yml --limit "$host" \
+    -e "wp_site_only=$domain" -e "confirm=$domain"
+  if grep -q "^  ${domain}:" "$f"; then
+    # Drop the entry: its key line and the indented lines below it.
+    awk -v d="  $domain:" '$0==d{skip=1;next} skip&&/^    /{next} {skip=0;print}' "$f" > "$f.tmp"
+    mv "$f.tmp" "$f"
+    echo "removed $domain from $f"
+  fi
+}
+
+cmd_clone() {
+  [[ $# -ge 3 ]] || die "usage: clone <host> <from> <to> [user|-]"
+  local host=$1 from=$2 to=$3 user=${4:--} php f
+  valid_host "$host"; valid_domain "$from"; valid_domain "$to"
+  f=$INV/host_vars/$host/sites.yml
+  grep -q "^  ${from}:" "$f" || die "$from not in $f"
+  php=$(site_php "$host" "$from"); php=${php:-8.3}
+  if ! grep -q "^  ${to}:" "$f"; then
+    cmd_add "$host" "$to" "$user" "$php"
+  fi
+  ((DRY)) && return
+  confirm "Copy files and DB of $from over $to?"
+  ansible-playbook -i "$INV" playbooks/site-clone.yml --limit "$host" \
+    -e "clone_from=$from" -e "clone_to=$to" -e "confirm=$to"
+}
 
 case "${1:-}" in
   add)    shift; cmd_add "$@" ;;
   info)   shift; cmd_info "$@" ;;
-  remove|clone) cmd_stub "$1" ;;
-  *) sed -n '2,7p' "$0"; exit 1 ;;
+  remove) shift; cmd_remove "$@" ;;
+  clone)  shift; cmd_clone "$@" ;;
+  *) sed -n '2,9p' "$0"; exit 1 ;;
 esac

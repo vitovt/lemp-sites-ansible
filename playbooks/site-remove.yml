@@ -1,10 +1,187 @@
 ---
-# STUB: remove one site (backup first, then pool, vhost, cron, DB, users, files).
-#   ansible-playbook playbooks/site-remove.yml --limit wp01 -e wp_site_only=<domain>
+# Remove one site. Backup first, archive the files, then remove everything.
+#   ansible-playbook playbooks/site-remove.yml --limit wp01 -e wp_site_only=<domain> -e confirm=<domain>
+# Site facts come from /srv/sites/<domain>/conf/site.env on the server, so this
+# also works after the entry was removed from the inventory.
+# Kept: archive <removed_dir>/<domain>-<time>.tar.gz (htdocs, conf, logs, DB dump),
+# restic snapshots (until forget), passwords in secrets/ on the control node.
+# After it: delete the entry from host_vars/<host>/sites.yml (scripts/site remove does).
 - name: Remove one site
   hosts: wp
+  become: true
   gather_facts: false
+  vars:
+    remove_domain: "{{ wp_site_only | default('') }}"
+    remove_dir: "/srv/sites/{{ remove_domain }}"
+    remove_archive_dir: "{{ backup_restic_removed_dir | default('/mnt/backups/removed') }}"
+    remove_mariadb_socket: "{{ mariadb_socket | default('/run/mysqld/mysqld.sock') }}"
+    remove_valkey_socket: "{{ valkey_socket | default('/run/valkey/valkey-server.sock') }}"
+    remove_valkey_aclfile: "{{ valkey_aclfile | default('/etc/valkey/users.acl') }}"
   tasks:
-    - name: Not implemented
-      ansible.builtin.fail:
-        msg: "TODO site-remove: not implemented. Nothing was changed."
+    - name: Check arguments
+      ansible.builtin.assert:
+        that:
+          - remove_domain is match('^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9-]{2,}$')
+          - (confirm | default('')) == remove_domain
+        fail_msg: "Usage: -e wp_site_only=<domain> -e confirm=<domain> (both the same domain)."
+        quiet: true
+
+    - name: Read site facts
+      ansible.builtin.slurp:
+        src: "{{ remove_dir }}/conf/site.env"
+      register: remove_env_raw
+
+    - name: Parse site facts
+      ansible.builtin.set_fact:
+        remove_site: >-
+          {{ dict(remove_env_raw.content | b64decode
+                  | regex_findall('(?m)^([A-Z_]+)="?([^"\n]*)"?$')) }}
+
+    - name: Check site facts
+      ansible.builtin.assert:
+        that:
+          - remove_site.DOMAIN == remove_domain
+          - remove_site.SITE_USER is match('^[a-z][a-z0-9_]*$')
+          - remove_site.DB_NAME is match('^[a-z][a-z0-9_]*$')
+        quiet: true
+
+    - name: Back up the site (restic + DB dump)
+      ansible.builtin.command:
+        argv: [/usr/local/sbin/wp-backup, "{{ remove_domain }}"]
+      changed_when: true
+
+    - name: Create archive dir
+      ansible.builtin.file:
+        path: "{{ remove_archive_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Archive site files (includes backup/db.sql.gz)
+      ansible.builtin.command:
+        argv:
+          - tar
+          - -C
+          - /srv/sites
+          - --exclude={{ remove_domain }}/tmp
+          - --exclude={{ remove_domain }}/htdocs/wp-content/cache
+          - -czf
+          - "{{ remove_archive_dir }}/{{ remove_domain }}-{{ now(fmt='%Y%m%d-%H%M%S') }}.tar.gz"
+          - "{{ remove_domain }}"
+      changed_when: true
+
+    - name: Remove vhost
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/nginx/sites-enabled/{{ remove_domain }}.conf"
+        - "/etc/nginx/sites-available/{{ remove_domain }}.conf"
+
+    - name: Reload nginx
+      ansible.builtin.shell:
+        cmd: nginx -t -q && systemctl reload nginx
+      changed_when: true
+
+    - name: Remove PHP-FPM pool
+      ansible.builtin.file:
+        path: "/etc/php/{{ remove_site.PHP_VERSION }}/fpm/pool.d/{{ remove_site.SITE_USER }}.conf"
+        state: absent
+
+    - name: Find remaining pools
+      ansible.builtin.find:
+        paths: "/etc/php/{{ remove_site.PHP_VERSION }}/fpm/pool.d"
+        patterns: "*.conf"
+      register: remove_pools_left
+
+    # FPM refuses to start without pools: stop it when this was the last one.
+    - name: Reload or stop PHP-FPM
+      ansible.builtin.systemd_service:
+        name: "php{{ remove_site.PHP_VERSION }}-fpm"
+        state: "{{ 'reloaded' if remove_pools_left.matched > 0 else 'stopped' }}"
+        enabled: "{{ remove_pools_left.matched > 0 }}"
+
+    - name: Remove cron, logrotate and monitor state
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/cron.d/wp-{{ remove_site.SITE_USER }}"
+        - "/etc/logrotate.d/wp-{{ remove_site.SITE_USER }}"
+        - "/var/lib/wp-monitor/{{ remove_domain }}.admins"
+
+    - name: Remove local name
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "# wp-site {{ remove_domain | regex_escape }}$"
+        state: absent
+
+    - name: Drop database
+      community.mysql.mysql_db:
+        name: "{{ remove_site.DB_NAME }}"
+        state: absent
+        login_unix_socket: "{{ remove_mariadb_socket }}"
+
+    - name: Drop DB user
+      community.mysql.mysql_user:
+        name: "{{ remove_site.DB_NAME }}"
+        host: localhost
+        state: absent
+        login_unix_socket: "{{ remove_mariadb_socket }}"
+
+    - name: Remove Valkey ACL user
+      ansible.builtin.lineinfile:
+        path: "{{ remove_valkey_aclfile }}"
+        regexp: "^user {{ remove_site.SITE_USER }} "
+        state: absent
+      register: remove_acl
+      failed_when: false
+
+    # ACL LOAD applies the file without a restart (other sites keep their cache).
+    - name: Reload Valkey ACL
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          REDISCLI_AUTH="$(cat /root/.valkey-admin.pass)"
+          valkey-cli --no-auth-warning -s {{ remove_valkey_socket }} --user admin ACL LOAD
+          | grep -qx OK
+        executable: /bin/bash
+      when: remove_acl is changed  # noqa: no-handler (one-shot playbook, must run before users are removed)
+      changed_when: true
+
+    - name: Check for Let's Encrypt certificate
+      ansible.builtin.stat:
+        path: "/etc/letsencrypt/renewal/{{ remove_domain }}.conf"
+      register: remove_le
+
+    - name: Delete Let's Encrypt certificate
+      ansible.builtin.command:
+        argv: [certbot, delete, --non-interactive, --cert-name, "{{ remove_domain }}"]
+      when: remove_le.stat.exists
+      changed_when: true
+
+    - name: Remove site users
+      ansible.builtin.user:
+        name: "{{ item }}"
+        state: absent
+        force: false
+      loop:
+        - "{{ remove_site.SITE_USER }}-php"
+        - "{{ remove_site.SITE_USER }}"
+
+    - name: Remove site group
+      ansible.builtin.group:
+        name: "{{ remove_site.SITE_USER }}"
+        state: absent
+
+    - name: Remove site dir
+      ansible.builtin.file:
+        path: "{{ remove_dir }}"
+        state: absent
+
+    - name: Done
+      ansible.builtin.debug:
+        msg: >-
+          {{ remove_domain }} removed. Archive in {{ remove_archive_dir }}.
+          Now delete it from host_vars/{{ inventory_hostname }}/sites.yml.
