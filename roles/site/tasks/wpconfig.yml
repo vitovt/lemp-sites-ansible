@@ -45,4 +45,4 @@
     argv: [/usr/local/sbin/wp-git-commit, "{{ site_cfg.domain }}", "wp-config: WP_REDIS_GRACEFUL"]
     removes: "{{ site_cfg.path }}/htdocs/.git"
   changed_when: true
-  when: site_redis_graceful_add is changed
+  when: site_redis_graceful_add is changed  # noqa: no-handler (per-site loop var)
