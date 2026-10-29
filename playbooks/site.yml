@@ -2,6 +2,10 @@
 - name: WordPress hosting v2
   hosts: wp
   become: true
+  pre_tasks:
+    - name: Check test isolation
+      ansible.builtin.import_tasks: tasks/test-guard.yml
+
   roles:
     - { role: preflight, tags: [preflight, always] }
     - { role: common, tags: [common] }

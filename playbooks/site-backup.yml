@@ -10,6 +10,10 @@
   gather_facts: false
   vars:
     site_backup_domain: "{{ wp_site_only | default('') }}"
+  pre_tasks:
+    - name: Check test isolation
+      ansible.builtin.import_tasks: tasks/test-guard.yml
+
   tasks:
     - name: Run wp-backup
       ansible.builtin.command:

@@ -25,6 +25,10 @@
               'php': (v.php_version | default(php_default_version | default('8.3'))) | string}) -%}
       {%- endfor -%}
       {{ out }}
+  pre_tasks:
+    - name: Check test isolation
+      ansible.builtin.import_tasks: tasks/test-guard.yml
+
   tasks:
     - name: Run wp-monitor --check
       ansible.builtin.command:
