@@ -146,6 +146,11 @@ ansible-playbook playbooks/site.yml -t site,site_fix_perms -e wp_site_only=<doma
 Код: каталоги 2750, файли 0640.
 Каталоги для запису: каталоги 2770, файли 0660.
 
+Новий сайт (ще немає `conf/site.env`): якщо в `htdocs` є файли, але немає WordPress
+(`wp-includes/version.php`), роль зупиняється до створення користувачів. Дозволено: порожній
+або відсутній `htdocs`, тільки `wp-config.php`/`.git`/порожні каталоги, або повне дерево WordPress.
+Свідомо лишити чужі файли: `-e site_docroot_force=true`.
+
 ## База даних
 
 Роль створює БД `db_name` (utf8mb4, utf8mb4_unicode_ci).

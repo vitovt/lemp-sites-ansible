@@ -20,6 +20,8 @@
     fail_msg: "Bad user/db name for {{ site_cfg.domain }}: {{ site_cfg.user }} (max {{ site_user_max_len }} chars, [a-z][a-z0-9_]*)"
     quiet: true
 
+- name: Docroot check ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: docroot.yml
 - name: Users ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: users.yml
 - name: Directories ({{ site_cfg.domain }})

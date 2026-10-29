@@ -1,0 +1,33 @@
+---
+# New site only (no conf/site.env yet): refuse a docroot that has files but no
+# WordPress (wrong path, half-copied migration, someone else's code).
+# Allowed: missing/empty htdocs, only wp-config.php/.git/empty dirs, or a WordPress tree.
+# Override: -e site_docroot_force=true
+- name: Check for an existing site.env ({{ site_cfg.domain }})
+  ansible.builtin.stat:
+    path: "{{ site_cfg.path }}/conf/site.env"
+  register: site_env_stat
+
+- name: Look for foreign files in htdocs ({{ site_cfg.domain }})
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      d={{ (site_cfg.path ~ '/htdocs') | quote }};
+      [ -d "$d" ] || exit 0;
+      [ -f "$d/wp-includes/version.php" ] && exit 0;
+      find "$d" -mindepth 1 \( -path "$d/.git" -prune \) -o ! -type d ! -path "$d/wp-config.php" -print | head -n 5
+    executable: /bin/bash
+  register: site_docroot_foreign
+  changed_when: false
+  check_mode: false
+  when: not site_env_stat.stat.exists
+
+- name: Refuse a non-empty docroot without WordPress ({{ site_cfg.domain }})
+  ansible.builtin.assert:
+    that: site_docroot_foreign.stdout | default('') | length == 0 or site_docroot_force | default(false) | bool
+    fail_msg: >-
+      {{ site_cfg.path }}/htdocs has files but no WordPress (wp-includes/version.php),
+      e.g. {{ site_docroot_foreign.stdout_lines | default([]) | join(', ') }}.
+      Fix the path or empty it; to keep these files anyway: -e site_docroot_force=true
+    quiet: true
+  when: not site_env_stat.stat.exists
