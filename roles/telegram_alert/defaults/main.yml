@@ -1,9 +1,10 @@
 ---
-# STUB. Interface for telegram_alert.
-# Installs /usr/local/bin/telegram-alert "<text>" (used by backup_restic,
-# wp_monitor, unattended-upgrades hooks) and /etc/telegram-alert.conf (0600).
-# Missing secret files = role skips with a warning.
-telegram_alert_token_src: "{{ secrets_dir }}/telegram_bot_token"
-telegram_alert_chat_id_src: "{{ secrets_dir }}/telegram_chat_id"
-telegram_alert_bin: /usr/local/bin/telegram-alert
-telegram_alert_conf: /etc/telegram-alert.conf
+# tg-alert "<text>" (or text on stdin): used by backup_restic and wp_monitor.
+# Always logs to syslog (tag tg-alert). Sends to Telegram only if the env file
+# exists on the target. Always exits 0, so callers never fail on alerting.
+telegram_alert_bin: /usr/local/sbin/tg-alert
+# Control node: KEY=VALUE file with TG_BOT_TOKEN and TG_CHAT_ID
+# (see secrets/telegram.env.example). Missing file = no Telegram, syslog only.
+telegram_alert_env_src: "{{ secrets_dir }}/telegram.env"
+# Target: root-only copy of that file.
+telegram_alert_env: /etc/tg-alert.env

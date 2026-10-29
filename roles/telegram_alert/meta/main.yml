@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   author: Sysadmin bot
-  description: "Telegram alert helper (STUB)"
+  description: "Telegram alert helper"
   license: MIT
   min_ansible_version: "2.16"
   platforms:

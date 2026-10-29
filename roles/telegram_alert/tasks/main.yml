@@ -1,6 +1,38 @@
 ---
-- name: Telegram alert role is a stub
+- name: Install curl for tg-alert
+  ansible.builtin.apt:
+    name: curl
+    state: present
+    cache_valid_time: 3600
+
+- name: Install tg-alert
+  ansible.builtin.copy:
+    src: tg-alert
+    dest: "{{ telegram_alert_bin }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check for Telegram secrets on the control node
+  ansible.builtin.stat:
+    path: "{{ telegram_alert_env_src }}"
+  delegate_to: localhost
+  become: false
+  register: telegram_alert_src
+
+- name: Install Telegram credentials (root only)
+  ansible.builtin.copy:
+    src: "{{ telegram_alert_env_src }}"
+    dest: "{{ telegram_alert_env }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: telegram_alert_src.stat.exists
+
+- name: Warn when Telegram is not configured
   ansible.builtin.debug:
     msg: >-
-      TODO telegram_alert: install {{ telegram_alert_bin }} and {{ telegram_alert_conf }}
-      from {{ telegram_alert_token_src }} / {{ telegram_alert_chat_id_src }}.
+      {{ telegram_alert_env_src }} not found: tg-alert logs to syslog only.
+      Copy secrets/telegram.env.example to secrets/telegram.env to enable Telegram.
+  when: not telegram_alert_src.stat.exists

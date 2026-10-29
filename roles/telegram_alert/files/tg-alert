@@ -1,0 +1,37 @@
+#!/bin/sh
+# tg-alert "<text>"   or   echo "<text>" | tg-alert
+# Logs to syslog (tag tg-alert). If /etc/tg-alert.env exists (root only),
+# also sends the text to Telegram. Always exits 0.
+# Env file: TG_BOT_TOKEN=123:abc  TG_CHAT_ID=-100123
+ENV_FILE="${TG_ALERT_ENV:-/etc/tg-alert.env}"
+if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
+[ -n "$text" ] || exit 0
+host="$(hostname -f 2>/dev/null || hostname)"
+text="[$host] $text"
+
+printf '%s\n' "$text" | logger -t tg-alert -p user.warning || true
+
+if [ ! -r "$ENV_FILE" ]; then
+    logger -t tg-alert -p user.notice "no $ENV_FILE: Telegram not configured, logged only" || true
+    exit 0
+fi
+TG_BOT_TOKEN="$(sed -n 's/^TG_BOT_TOKEN=//p' "$ENV_FILE" | tr -d '"'"'"' \r')"
+TG_CHAT_ID="$(sed -n 's/^TG_CHAT_ID=//p' "$ENV_FILE" | tr -d '"'"'"' \r')"
+if [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
+    logger -t tg-alert -p user.err "TG_BOT_TOKEN or TG_CHAT_ID empty in $ENV_FILE" || true
+    exit 0
+fi
+
+# Telegram limit is 4096 chars per message.
+text="$(printf '%s' "$text" | cut -c1-4000)"
+err="$(mktemp)" || exit 0
+# Token goes via curl config on stdin, so it never shows up in ps.
+if ! printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TG_BOT_TOKEN" \
+    | curl -sS -f -m 20 --retry 2 -o /dev/null -K - \
+        --data-urlencode "chat_id=$TG_CHAT_ID" \
+        --data-urlencode "text=$text" \
+        --data-urlencode "disable_web_page_preview=true" 2>"$err"; then
+    logger -t tg-alert -p user.err "send failed: $(head -c 300 "$err")" || true
+fi
+rm -f "$err"
+exit 0
