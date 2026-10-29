@@ -14,6 +14,15 @@ spec.loader.exec_module(ops)
 
 
 class OperationTests(unittest.TestCase):
+    def test_client_password_cannot_add_an_option(self):
+        value = 'secret\nuser=root\r\npassword="\\quoted"\t#;'
+        encoded = ops.option_value(value)
+        self.assertEqual(encoded, '"secret\\nuser=root\\r\\npassword=\\"\\\\quoted\\"\\t#;"')
+        self.assertNotIn('\n', encoded)
+        self.assertNotIn('\r', encoded)
+        with self.assertRaises(ValueError):
+            ops.option_value('secret\x00hidden')
+
     def test_facts_are_data_not_shell(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / 'executed'

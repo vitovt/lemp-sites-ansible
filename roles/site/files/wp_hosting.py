@@ -168,11 +168,19 @@ def dump(database, destination, db):
         temporary.unlink(missing_ok=True)
 
 
+def option_value(value):
+    if not isinstance(value, str) or '\x00' in value:
+        raise ValueError('Invalid database credential value')
+    value = value.replace('\\', '\\\\').replace('"', '\\"')
+    value = value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+    return '"' + value + '"'
+
+
 def load(path, name, user, password):
     # Credentials never appear in argv or an environment variable.
     with tempfile.TemporaryDirectory(prefix='wp-import-', dir=RUNTIME) as temporary:
         config = Path(temporary) / 'client.cnf'
-        config.write_text(f'[client]\nuser={user}\npassword={password}\nprotocol=socket\nsocket=/run/mysqld/mysqld.sock\n')
+        config.write_text(f'[client]\nuser={user}\npassword={option_value(password)}\nprotocol=socket\nsocket=/run/mysqld/mysqld.sock\n')
         config.chmod(0o600)
         with gzip.open(path, 'rb') as source, tempfile.TemporaryFile() as errors:
             process = subprocess.Popen(['mariadb', '--defaults-extra-file=' + str(config), '--binary-mode', '--local-infile=0', name],
