@@ -8,8 +8,14 @@ server {
     listen 80;
     listen [::]:80;
     server_name {{ names | join(' ') }};
-    if ($cf_origin_ok = 0) { return 444; }
-    return 301 https://{{ site_cfg.domain }}$request_uri;
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ certbot_cloudflare_webroot | default('/var/lib/letsencrypt') }};
+        try_files $uri =404;
+    }
+    location / {
+        if ($cf_origin_ok = 0) { return 444; }
+        return 301 https://{{ site_cfg.domain }}$request_uri;
+    }
 }
 
 server {

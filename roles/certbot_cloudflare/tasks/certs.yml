@@ -1,29 +1,31 @@
 ---
-- name: Install certbot with Cloudflare DNS plugin
+- name: Install ACME packages
   ansible.builtin.apt:
     name: "{{ certbot_cloudflare_packages }}"
     state: present
-    cache_valid_time: 3600
 
-- name: Install Cloudflare credentials (root only)
+- name: Install DNS credentials
   ansible.builtin.copy:
     src: "{{ certbot_cloudflare_credentials_src }}"
     dest: "{{ certbot_cloudflare_credentials }}"
     owner: root
     group: root
     mode: "0600"
+  when: certbot_cloudflare_method == 'dns-cloudflare'
   no_log: true
 
-# Debian's package creates it only on the first certbot run.
-- name: Create renewal hook directory
+- name: Create ACME directories
   ansible.builtin.file:
-    path: "{{ certbot_cloudflare_deploy_hook | dirname }}"
+    path: "{{ item }}"
     state: directory
     owner: root
     group: root
     mode: "0755"
+  loop:
+    - "{{ certbot_cloudflare_deploy_hook | dirname }}"
+    - "{{ certbot_cloudflare_webroot }}/.well-known/acme-challenge"
 
-- name: Install renewal deploy hook
+- name: Install the renewal hook
   ansible.builtin.template:
     src: reload-nginx.j2
     dest: "{{ certbot_cloudflare_deploy_hook }}"
@@ -31,14 +33,7 @@
     group: root
     mode: "0755"
 
-- name: Enable renewal timer
-  ansible.builtin.systemd_service:
-    name: certbot.timer
-    enabled: true
-    state: started
-
-# Same selection as the site role (wp_site_only = one site).
-- name: List certificates to manage
+- name: Select certificates
   ansible.builtin.set_fact:
     certbot_cloudflare_certs: >-
       {%- set out = [] -%}
@@ -49,7 +44,40 @@
       {%- endfor -%}
       {{ out }}
 
-- name: Read names in existing certificates
+- name: Find existing vhosts
+  ansible.builtin.stat:
+    path: "/etc/nginx/sites-enabled/{{ item.domain }}.conf"
+  loop: "{{ certbot_cloudflare_certs }}"
+  register: certbot_cloudflare_vhosts
+
+- name: Install a temporary HTTP challenge server
+  ansible.builtin.copy:
+    dest: "/etc/nginx/sites-enabled/acme-{{ item.item.domain }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      server {
+          listen 80;
+          listen [::]:80;
+          server_name {{ item.item.names | join(' ') }};
+          location ^~ /.well-known/acme-challenge/ {
+              root {{ certbot_cloudflare_webroot }};
+              try_files $uri =404;
+          }
+          location / { return 404; }
+      }
+  when: certbot_cloudflare_method == 'webroot' and not item.stat.exists
+  loop: "{{ certbot_cloudflare_vhosts.results }}"
+  register: certbot_cloudflare_bootstrap
+
+- name: Apply the challenge server
+  ansible.builtin.shell:
+    cmd: nginx -t -q && systemctl reload nginx
+  when: certbot_cloudflare_bootstrap is changed  # noqa: no-handler (challenge must be served before issuance)
+  changed_when: true
+
+- name: Read the certificate names
   ansible.builtin.shell:
     cmd: >-
       set -o pipefail;
@@ -57,82 +85,62 @@
       | grep -o 'DNS:[^,]*' | cut -d: -f2 | sort
     executable: /bin/bash
   loop: "{{ certbot_cloudflare_certs }}"
-  loop_control:
-    label: "{{ item.domain }}"
-  register: certbot_cloudflare_current
+  register: certbot_cloudflare_existing
   changed_when: false
   failed_when: false
 
-# New cert, or names changed (alias added/removed). Renewal is certbot.timer's job.
-- name: Request certificate (DNS-01)
+- name: Request the certificate
   ansible.builtin.command:
     argv: >-
-      {{ ['certbot', 'certonly', '--non-interactive', '--agree-tos',
-          '--dns-cloudflare',
-          '--dns-cloudflare-credentials', certbot_cloudflare_credentials,
-          '--dns-cloudflare-propagation-seconds', certbot_cloudflare_propagation_seconds | string,
-          '--cert-name', item.item.domain]
+      {{ ['certbot', 'certonly', '--non-interactive', '--agree-tos', '--cert-name', item.item.domain]
+         + (['--dns-cloudflare', '--dns-cloudflare-credentials', certbot_cloudflare_credentials,
+             '--dns-cloudflare-propagation-seconds', certbot_cloudflare_propagation_seconds | string]
+            if certbot_cloudflare_method == 'dns-cloudflare' else ['--webroot', '-w', certbot_cloudflare_webroot])
          + (['--email', certbot_cloudflare_email] if certbot_cloudflare_email else ['--register-unsafely-without-email'])
-         + certbot_cloudflare_extra_args
-         + ['-d', item.item.names | unique | join(',')] }}
-  loop: "{{ certbot_cloudflare_current.results }}"
-  loop_control:
-    label: "{{ item.item.domain }}"
-  when: (item.stdout_lines | default([]) | sort) != (item.item.names | unique | sort)
-  register: certbot_cloudflare_request
-  # Failure = warning below; the vhost stays on its current (snakeoil) certificate.
-  failed_when: false
-  changed_when: certbot_cloudflare_request.rc | default(1) == 0
+         + certbot_cloudflare_extra_args + ['-d', item.item.names | unique | join(',')] }}
+  loop: "{{ certbot_cloudflare_existing.results }}"
+  when: item.stdout_lines | default([]) | sort != item.item.names | unique | sort
+  changed_when: true
 
-- name: List failed certificate requests
-  ansible.builtin.set_fact:
-    certbot_cloudflare_failed: >-
-      {{ certbot_cloudflare_request.results
-         | selectattr('rc', 'defined') | rejectattr('rc', 'equalto', 0) | list }}
+- name: Remove temporary challenge servers
+  ansible.builtin.file:
+    path: "/etc/nginx/sites-enabled/acme-{{ item.domain }}.conf"
+    state: absent
+  loop: "{{ certbot_cloudflare_certs }}"
+  notify: reload nginx
 
-# Read-only: where the names point, which nameservers serve the zone.
-- name: Check DNS for failed names
-  ansible.builtin.shell:
-    cmd: |
-      set -o pipefail
-      for n in {{ item.item.item.names | unique | map('quote') | join(' ') }}; do
-        z=$n; ns=""
-        while [ -n "$z" ] && [ "${z#*.}" != "$z" ]; do
-          ns=$(dig +short NS "$z" @{{ certbot_cloudflare_dns_resolver }} | tr '\n' ' ')
-          [ -n "$ns" ] && break; z=${z#*.}
-        done
-        [ -n "$ns" ] || z=
-        a=$(dig +short A "$n" @{{ certbot_cloudflare_dns_resolver }} | tr '\n' ' ')
-        cf=no; case "$ns" in *.ns.cloudflare.com.*) cf=yes;; esac
-        echo "$n: zone=${z:-?} cloudflare_ns=$cf NS=[${ns% }] A=[${a% }]"
-      done
-    executable: /bin/bash
-  loop: "{{ certbot_cloudflare_failed }}"
-  loop_control:
-    label: "{{ item.item.item.domain }}"
-  register: certbot_cloudflare_dns
+- name: Check certificate lifetime
+  ansible.builtin.command:
+    argv: [openssl, x509, -in, "/etc/letsencrypt/live/{{ item.domain }}/fullchain.pem", -noout, -checkend, '1209600']
+  loop: "{{ certbot_cloudflare_certs }}"
   changed_when: false
+  when: certbot_cloudflare_require_valid | bool
 
-- name: Warn about failed certificates
-  ansible.builtin.debug:
-    msg: |-
-      WARNING: Let's Encrypt failed for {{ item.item.item.item.domain }}; the site stays on its current certificate (snakeoil if new).
-      certbot: {{ (item.item.stderr_lines | default([]) | select | list)[-3:] | join(' | ') }}
-      DNS: {{ item.stdout_lines | join(' ; ') }}
-      Fix DNS/token, then re-run: ansible-playbook playbooks/site.yml -t certbot_cloudflare,site -e wp_site_only={{ item.item.item.item.domain }}
-  loop: "{{ certbot_cloudflare_dns.results }}"
-  loop_control:
-    label: "{{ item.item.item.item.domain }}"
+- name: Check all certificate names
+  ansible.builtin.command:
+    argv: [openssl, x509, -in, "/etc/letsencrypt/live/{{ item.0.domain }}/fullchain.pem", -noout, -checkhost, "{{ item.1 }}"]
+  loop: "{{ certbot_cloudflare_certs | subelements('names') }}"
+  register: certbot_cloudflare_name_check
+  changed_when: false
+  failed_when: certbot_cloudflare_name_check.rc != 0 or 'does match certificate' not in certbot_cloudflare_name_check.stdout
+  when: certbot_cloudflare_require_valid | bool
 
-- name: Alert about failed certificates
+- name: Enable certificate renewal
+  ansible.builtin.systemd_service:
+    name: certbot.timer
+    enabled: true
+    state: started
+
+- name: Check the public certificate trust chain
   ansible.builtin.command:
     argv:
-      - /usr/local/sbin/tg-alert
-      - >-
-        {{ inventory_hostname }}: Let's Encrypt failed for {{ item.item.item.item.domain }}
-        (site stays on snakeoil/old cert). DNS: {{ item.stdout_lines | join(' ; ') }}
-  loop: "{{ certbot_cloudflare_dns.results }}"
-  loop_control:
-    label: "{{ item.item.item.item.domain }}"
+      - openssl
+      - verify
+      - -CAfile
+      - /etc/ssl/certs/ca-certificates.crt
+      - -untrusted
+      - "/etc/letsencrypt/live/{{ item.domain }}/chain.pem"
+      - "/etc/letsencrypt/live/{{ item.domain }}/cert.pem"
+  loop: "{{ certbot_cloudflare_certs }}"
   changed_when: false
-  failed_when: false
+  when: certbot_cloudflare_require_valid | bool

@@ -7,18 +7,17 @@ certbot_cloudflare_enabled: true
 certbot_cloudflare_packages:
   - certbot
   - python3-certbot-dns-cloudflare
-  - bind9-dnsutils   # dig, for the DNS check after a failed request
-# Scoped API token (Zone:DNS:Edit). Missing file = role skips with a warning.
+# Scoped API token (Zone:DNS:Edit). A missing token stops DNS issuance.
 certbot_cloudflare_credentials_src: "{{ secrets_dir }}/cloudflare.ini"
 certbot_cloudflare_credentials: /etc/letsencrypt/cloudflare.ini
 certbot_cloudflare_propagation_seconds: 30
-# Empty = register without email (no expiry mails from Let's Encrypt).
+# Empty = register without an email address.
 certbot_cloudflare_email: ""
 # Renewal deploy hook (certbot.timer from the Debian package renews).
 certbot_cloudflare_deploy_hook: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
 # Extra certbot flags, e.g. ["--test-cert"] for the staging CA.
 certbot_cloudflare_extra_args: []
-# A failed request does not stop the play: warning + DNS check + tg-alert,
-# the site keeps its current certificate (snakeoil for a new site).
-# Public resolver for the DNS check.
-certbot_cloudflare_dns_resolver: 1.1.1.1
+# DNS-01 is the default. Webroot uses port 80 through nginx.
+certbot_cloudflare_method: dns-cloudflare
+certbot_cloudflare_webroot: /var/lib/letsencrypt
+certbot_cloudflare_require_valid: true

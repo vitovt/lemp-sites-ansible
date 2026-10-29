@@ -10,7 +10,7 @@ table inet wp_hosting {
         ct state invalid drop
         meta l4proto { icmp, ipv6-icmp } accept
         tcp dport { {{ firewall_ssh_ports | join(', ') }} } accept
-{% if certbot_method | default('dns-cloudflare') == 'webroot' %}
+{% if certbot_cloudflare_method | default('dns-cloudflare') == 'webroot' %}
         tcp dport 80 accept
 {% endif %}
 {% if nginx_access_mode == 'direct' %}

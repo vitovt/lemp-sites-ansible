@@ -1,23 +1,11 @@
 ---
-- name: Check for Cloudflare credentials on the control node
-  ansible.builtin.stat:
-    path: "{{ certbot_cloudflare_credentials_src }}"
-  delegate_to: localhost
-  become: false
-  register: certbot_cloudflare_src
-  when: certbot_cloudflare_enabled | bool
+- name: Check the certificate policy
+  ansible.builtin.assert:
+    that:
+      - certbot_cloudflare_method in ['dns-cloudflare', 'webroot']
+      - certbot_cloudflare_enabled | bool or not certbot_cloudflare_require_valid | bool
+    fail_msg: "Production requires certificate management. Disable the requirement only in isolated tests."
 
-- name: Warn when certbot is skipped
-  ansible.builtin.debug:
-    msg: >-
-      certbot_cloudflare skipped:
-      {{ 'certbot_cloudflare_enabled is false' if not (certbot_cloudflare_enabled | bool)
-         else certbot_cloudflare_credentials_src ~ ' not found' }}.
-      Sites keep the snakeoil certificate.
-  when: not (certbot_cloudflare_enabled | bool) or not certbot_cloudflare_src.stat.exists
-
-- name: Issue certificates
+- name: Issue and check certificates
   ansible.builtin.include_tasks: certs.yml
-  when:
-    - certbot_cloudflare_enabled | bool
-    - certbot_cloudflare_src.stat.exists
+  when: certbot_cloudflare_enabled | bool
