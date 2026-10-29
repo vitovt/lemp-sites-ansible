@@ -167,7 +167,12 @@ check_site() {  # $1 = site dir
         local plugin_rc=0 parsed
         out=$(wp_php plugin verify-checksums --all --format=json 2>/dev/null) || plugin_rc=$?
         if ! parsed=$(python3 -c 'import json,sys; x=json.load(sys.stdin); assert isinstance(x,list); print(len(x))' <<<"$out" 2>/dev/null); then
-            p plugin_checksums "checker returned invalid JSON (exit $plugin_rc)"
+            # WP-CLI emits a success line when there are no mismatches. Cross-check its count.
+            local inventory inventory_rc=0
+            inventory=$(wp_php plugin list --format=json 2>/dev/null) || inventory_rc=$?
+            if [ "$plugin_rc" = 0 ] && [ "$inventory_rc" = 0 ] && python3 -c 'import json,re,sys; plugins=json.load(sys.stdin); assert isinstance(plugins,list); n=sum(p.get("status") in ("active","inactive") for p in plugins); m=re.fullmatch(r"Success: Verified ([0-9]+) of ([0-9]+) plugins[.]\s*",sys.argv[1]); assert (n == 0 and sys.argv[1].strip() == "Success: Plugin already verified.") or (m and int(m[1]) == int(m[2]) == n)' "$out" <<<"$inventory" 2>/dev/null; then
+                ok plugin_checksums "verified plugin count"
+            else p plugin_checksums "checker returned invalid JSON (exit $plugin_rc)"; fi
         elif [ "$plugin_rc" != 0 ] || [ "$parsed" != 0 ]; then
             p plugin_checksums "checker exit $plugin_rc, $parsed mismatches"
         else ok plugin_checksums; fi

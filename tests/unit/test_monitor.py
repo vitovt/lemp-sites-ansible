@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MonitorTests(unittest.TestCase):
-    def run_monitor(self, *, core_error=False, missing=False, bad_json=False):
+    def run_monitor(self, *, core_error=False, missing=False, bad_json=False, success_line=False):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             site = base / 'sites/example.com'
@@ -22,8 +22,17 @@ class MonitorTests(unittest.TestCase):
             (base / 'config').write_text(f'STATE_DIR={base}/state\nWPCLI=/mock/wp\nCHECKS="core_checksums plugin_checksums"\n')
             (base / 'bin').mkdir()
             mock = base / 'bin/runuser'
-            mock.write_text('#!/bin/sh\n' + ('echo "Error: mock failure" >&2; exit 1\n' if core_error else
-                ('echo broken; exit 0\n' if bad_json else 'case "$*" in *plugin*) echo "[]";; *) echo "Success: verified";; esac\n')))
+            if success_line:
+                mock.write_text('''#!/bin/sh
+case "$*" in
+  *"plugin list"*) echo '[{"status":"inactive"}]';;
+  *"plugin verify-checksums"*) echo "Success: Verified 1 of 1 plugins.";;
+  *) echo "Success: verified";;
+esac
+''')
+            else:
+                mock.write_text('#!/bin/sh\n' + ('echo "Error: mock failure" >&2; exit 1\n' if core_error else
+                    ('echo broken; exit 0\n' if bad_json else 'case "$*" in *plugin*) echo "[]";; *) echo "Success: verified";; esac\n')))
             mock.chmod(0o755)
             script = base / 'monitor'
             script.write_text((ROOT / 'roles/wp_monitor/files/wp-monitor').read_text()
@@ -44,6 +53,9 @@ class MonitorTests(unittest.TestCase):
 
     def test_invalid_json_fails(self):
         self.assertEqual(self.run_monitor(bad_json=True).returncode, 1)
+
+    def test_success_line_is_checked_against_plugin_inventory(self):
+        self.assertEqual(self.run_monitor(success_line=True).returncode, 0)
 
     def test_successful_checks(self):
         self.assertEqual(self.run_monitor().returncode, 0)
