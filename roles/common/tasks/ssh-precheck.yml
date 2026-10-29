@@ -9,7 +9,7 @@
   ansible.builtin.assert:
     that:
       - common_ssh_admin_keys.stat.exists
-      - common_ssh_admin_keys.stat.size > 0
+      - (common_ssh_admin_keys.stat.size | default(0)) > 0
     fail_msg: >-
       {{ common_ssh_admin_keys_file }} is missing or empty. Install your public key
       first, else key-only SSH locks you out.

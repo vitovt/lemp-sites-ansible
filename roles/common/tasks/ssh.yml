@@ -1,9 +1,7 @@
 ---
-# TODO: add common_ssh_admin_keys_file to defaults (tool review error while writing).
-# Until then set it in group_vars, e.g. the admin user authorized_keys path.
+# common_ssh_admin_keys_file: see defaults (root, key login).
 - name: Check admin SSH key before key-only SSH
   ansible.builtin.import_tasks: ssh-precheck.yml
-  when: common_ssh_admin_keys_file is defined
 
 - name: Harden sshd with devsec.hardening.ssh_hardening
   ansible.builtin.include_role:
