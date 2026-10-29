@@ -40,6 +40,11 @@
   ansible.builtin.include_tasks: hosts.yml
 - name: Cron and logrotate ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: cron.yml
+- name: Optional WordPress install ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: install.yml
+  when: >-
+    (site_cfg.wp_install | bool)
+    or ((site_wp_install | default(false) | bool) and (wp_site_only | default('')) == site_cfg.domain)
 
 # On demand only:
 #   ansible-playbook playbooks/site.yml -t site,site_fix_perms -e wp_site_only=<domain>

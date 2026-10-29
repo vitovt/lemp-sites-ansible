@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Site CLI for this repo. Runs on the admin laptop, not on the server.
 # Usage:
-#   scripts/site add <host> <domain> [user|-] [php_version] [--dry-run]
+#   scripts/site add <host> <domain> [user|-] [php_version] [--dry-run] [--install-wp]
+#     --install-wp = fresh WordPress (admin password: secrets/<host>/wp-admin/<domain>.pass)
 #     user "-" or empty = role default (domain with . and - as _)
 #   scripts/site info <host> [domain]
 #   scripts/site remove <host> <domain>                 backup, archive, remove
@@ -13,9 +14,15 @@ INV=${SITE_INVENTORY:-inventories/prod}
 INV=${INV%/}
 
 die() { echo "error: $*" >&2; exit 1; }
-DRY=0
+DRY=0 INSTALL=()
 args=()
-for a in "$@"; do [[ $a == --dry-run ]] && DRY=1 || args+=("$a"); done
+for a in "$@"; do
+  case $a in
+    --dry-run) DRY=1 ;;
+    --install-wp) INSTALL=(-e site_wp_install=true) ;;
+    *) args+=("$a") ;;
+  esac
+done
 set -- "${args[@]}"
 
 valid_host()   { [[ -d $INV/host_vars/$1 ]] || die "unknown host: $1"; }
@@ -42,7 +49,7 @@ cmd_add() {
   ((DRY)) && { echo "(dry-run) not written"; return; }
   confirm "Add $domain to $f and converge $host?"
   printf '%s\n' "$entry" >> "$f"
-  ansible-playbook -i "$INV" playbooks/site.yml --limit "$host" -e "wp_site_only=$domain"
+  ansible-playbook -i "$INV" playbooks/site.yml --limit "$host" -e "wp_site_only=$domain" ${INSTALL[@]+"${INSTALL[@]}"}
 }
 
 cmd_info() {

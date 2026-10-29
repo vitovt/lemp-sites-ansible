@@ -1,0 +1,76 @@
+---
+# Optional fresh WordPress (default off: most sites are migrated).
+# Per site: wp_install: true; once from the CLI: -e site_wp_install=true -e wp_site_only=<d>
+# Runs only while wp-includes/version.php is missing.
+- name: Check for WordPress core ({{ site_cfg.domain }})
+  ansible.builtin.stat:
+    path: "{{ site_cfg.path }}/htdocs/wp-includes/version.php"
+  register: site_core_stat
+
+- name: Install WordPress ({{ site_cfg.domain }})
+  when: not site_core_stat.stat.exists
+  vars:
+    site_wp: >-
+      {{ ['runuser', '-u', site_cfg.user, '--', 'env', 'HOME=/tmp',
+          'php' ~ site_cfg.php_version, '/usr/local/bin/wp', '--path=' ~ site_cfg.path ~ '/htdocs'] }}
+  block:
+    # wp-cli checks the md5 of the archive. --skip-content: the full package is a
+    # tar.gz that wp-cli 2.12 (PharData) extracts with paths cut at 100 chars
+    # (25 missing wp-includes/php-ai-client files in WP 7.1); the no-content zip is fine.
+    # The default theme is installed after core install.
+    - name: Download WordPress core ({{ site_cfg.domain }})
+      ansible.builtin.command:
+        argv: >-
+          {{ site_wp + ['core', 'download', '--skip-content',
+             '--locale=' ~ site_cfg.wp_locale, '--version=' ~ site_cfg.wp_version] }}
+      changed_when: true
+
+    - name: Verify core checksums ({{ site_cfg.domain }})
+      ansible.builtin.command:
+        argv: "{{ site_wp + ['core', 'verify-checksums'] }}"
+      changed_when: false
+
+    - name: Check whether the database already has WordPress ({{ site_cfg.domain }})
+      ansible.builtin.command:
+        argv: "{{ site_wp + ['core', 'is-installed'] }}"
+      register: site_wp_installed
+      changed_when: false
+      failed_when: false
+
+    # Generated once on the control node: secrets/<host>/wp-admin/<domain>.pass
+    - name: Run the WordPress installer ({{ site_cfg.domain }})
+      ansible.builtin.command:
+        argv: >-
+          {{ site_wp + ['core', 'install', '--url=https://' ~ site_cfg.domain,
+             '--title=' ~ (site_cfg.wp_title or site_cfg.domain),
+             '--admin_user=' ~ site_cfg.wp_admin_user,
+             '--admin_email=' ~ (site_cfg.wp_admin_email or 'admin@' ~ site_cfg.domain),
+             '--skip-email', '--prompt=admin_password'] }}
+        stdin: >-
+          {{ lookup('ansible.builtin.password',
+             secrets_dir ~ '/' ~ inventory_hostname ~ '/wp-admin/' ~ site_cfg.domain ~ '.pass',
+             chars=['ascii_letters', 'digits'], length=24) }}
+      when: site_wp_installed.rc != 0
+      changed_when: true
+      no_log: true
+
+    - name: Read the default theme ({{ site_cfg.domain }})
+      ansible.builtin.command:
+        argv: "{{ site_wp + ['eval', 'echo WP_DEFAULT_THEME;'] }}"
+      register: site_wp_theme
+      changed_when: false
+
+    - name: Install the default theme ({{ site_cfg.domain }})
+      ansible.builtin.command:
+        argv: "{{ site_wp + ['theme', 'install', site_wp_theme.stdout | trim, '--activate'] }}"
+      changed_when: true
+
+    - name: Reset modes after install ({{ site_cfg.domain }})
+      ansible.builtin.command:
+        argv: [/usr/local/sbin/site-fix-perms, "{{ site_cfg.domain }}"]
+      changed_when: true
+
+    - name: Git baseline after install ({{ site_cfg.domain }})
+      ansible.builtin.command:
+        argv: [/usr/local/sbin/wp-git-commit, "{{ site_cfg.domain }}", "WordPress install"]
+      changed_when: true

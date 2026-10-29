@@ -151,6 +151,16 @@ ansible-playbook playbooks/site.yml -t site,site_fix_perms -e wp_site_only=<doma
 або відсутній `htdocs`, тільки `wp-config.php`/`.git`/порожні каталоги, або повне дерево WordPress.
 Свідомо лишити чужі файли: `-e site_docroot_force=true`.
 
+Свіжий WordPress (рідко: зазвичай сайти переносяться) — тільки за запитом, за замовчуванням вимкнено:
+`scripts/site add <host> <domain> ... --install-wp` (або `-e site_wp_install=true -e wp_site_only=<d>`),
+чи ключ сайту `wp_install: true`. Працює, лише поки немає `wp-includes/version.php`:
+`wp core download --skip-content` (md5 перевіряє wp-cli), `verify-checksums`, `wp core install`
+(якщо БД ще порожня), тема за замовчуванням, `site-fix-perms`, git baseline.
+Адмін: `wp_admin_user` (типово `wpadmin`), `wp_admin_email` (типово `admin@<domain>`), пароль —
+`secrets/<host>/wp-admin/<domain>.pass` (передається через stdin, не видно в `ps`).
+`--skip-content`, бо повний пакет wp-cli 2.12 розпаковує з tar.gz і обрізає шляхи до 100 символів
+(у WP 7.1 бракує 25 файлів `wp-includes/php-ai-client`).
+
 ## База даних
 
 Роль створює БД `db_name` (utf8mb4, utf8mb4_unicode_ci).
@@ -332,6 +342,7 @@ rsync `htdocs` (без `wp-config.php`, `.git`, `cache`), дамп БД A → Б
 
 ```sh
 scripts/site add wp01 example.com example 8.3 --dry-run
+scripts/site add wp01 new.example.com - 8.3 --install-wp   # зі свіжим WordPress
 scripts/site info wp01
 SITE_INVENTORY=inventories/test scripts/site info wptest
 ```

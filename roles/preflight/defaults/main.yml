@@ -32,3 +32,4 @@ preflight_site_keys:
   - wp_admin_email
   - wp_title
   - wp_locale
+  - wp_version
