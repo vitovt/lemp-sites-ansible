@@ -17,7 +17,8 @@ cd "$(dirname "$0")/.."
 NAME=wp-test NET=wp-test-net IP=172.31.250.10 IMAGE=wp-test-trixie
 INV=inventories/test/hosts.yml
 KEY=secrets/test/ssh/id_ed25519
-CT_VARS=(-e "ansible_host=$IP" -e "ansible_ssh_private_key_file=$KEY"
+CT_VARS=(-e "ansible_host=$IP" -e ansible_port=22 -e ansible_user=root -e "ansible_ssh_private_key_file=$KEY"
+  -e common_ssh_admin_keys_file=/root/.ssh/authorized_keys
   -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes'")
 ANSIBLE_PLAYBOOK=${ANSIBLE_PLAYBOOK:-.venv/bin/ansible-playbook}
 export ANSIBLE_HOST_KEY_CHECKING=False
