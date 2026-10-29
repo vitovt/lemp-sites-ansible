@@ -1,12 +1,118 @@
 #!/bin/bash
 # wp-backup            nightly run: dump all site DBs, restic backup, forget/prune, check
 # wp-backup <domain>   one site now: dump its DB, restic backup of /srv/sites/<domain>
+# wp-backup verify [domain]
+#     read-only test of the newest snapshot of each site: dump restorable and complete,
+#     loads into a scratch database (dropped after), core files present; restic check
+#     with a 5% data read. PASS/FAIL lines, exit 1 on FAIL, no alert.
+# wp-backup restore <domain> [snapshot]
+#     files + dump of the site into /srv/restore/<domain>-<time>/ (root, 0700). Live site untouched.
+# wp-backup restore-db <domain> <dump.sql.gz> --yes
+#     load a dump into the site's live DB. Saves the current DB first to
+#     backup/db-before-restore-<time>.sql.gz. CREATE DATABASE/USE lines are stripped,
+#     so a dump of site A can be loaded into site B.
 # Config: /etc/restic/env. Sites: /srv/sites/*/conf/site.env (site role).
 # On failure: tg-alert, exit 1.
 set -euo pipefail
 umask 077
 SITES_ROOT=/srv/sites
 set -a; . /etc/restic/env; set +a
+
+site_env() {  # $1 = domain -> DOMAIN DB_NAME SITE_USER PHP_VERSION
+    local env="$SITES_ROOT/$1/conf/site.env"
+    [ -f "$env" ] || { echo "unknown site: $1" >&2; exit 2; }
+    eval "$(. "$env"; printf 'DOMAIN=%q DB_NAME=%q SITE_USER=%q PHP_VERSION=%q' "$DOMAIN" "$DB_NAME" "$SITE_USER" "$PHP_VERSION")"
+}
+
+# Newest snapshot that contains /srv/sites/<domain> (nightly: /srv/sites, or site:<domain>).
+snapshot_for() {
+    restic snapshots --json | python3 -c '
+import json, sys
+d = sys.argv[1]
+snaps = [s for s in json.load(sys.stdin)
+         if any(p == "/srv/sites" or p == "/srv/sites/" + d for p in s.get("paths", []))]
+snaps.sort(key=lambda s: s["time"])
+print(snaps[-1]["short_id"] if snaps else "")' "$1"
+}
+
+strip_db() { sed -E '/^(CREATE DATABASE|USE )/d'; }
+
+if [ "${1:-}" = verify ]; then
+    shift
+    failed=0
+    res() { echo "$1 $2 $3${4:+: $4}"; [ "$1" != FAIL ] || failed=1; }
+    for env in "$SITES_ROOT"/*/conf/site.env; do
+        [ -e "$env" ] || continue
+        d=$(basename "$(dirname "$(dirname "$env")")")
+        [ -z "${1:-}" ] || [ "$d" = "$1" ] || continue
+        site_env "$d"
+        snap=$(snapshot_for "$d")
+        [ -n "$snap" ] || { res FAIL "$d" backup "no snapshot"; continue; }
+        base="$SITES_ROOT/$d"
+        files=$(restic ls "$snap" "$base/htdocs/wp-includes/version.php" "$base/htdocs/wp-config.php" 2>/dev/null | grep -c "^$base/htdocs/" || true)
+        if [ ! -f "$base/htdocs/wp-includes/version.php" ]; then res SKIP "$d" backup_files "no WordPress on the live site"
+        elif [ "$files" = 2 ]; then res PASS "$d" backup_files "snapshot $snap"
+        else res FAIL "$d" backup_files "snapshot $snap lacks version.php/wp-config.php"; fi
+        tmp=$(mktemp)
+        if ! restic dump "$snap" "$base/backup/db.sql.gz" > "$tmp" 2>/dev/null; then
+            res FAIL "$d" backup_db "no db.sql.gz in snapshot $snap"; rm -f "$tmp"; continue
+        fi
+        if ! gzip -t "$tmp" 2>/dev/null || ! zcat "$tmp" | tail -n 1 | grep -q 'Dump completed'; then
+            res FAIL "$d" backup_db "dump in $snap is broken or incomplete"; rm -f "$tmp"; continue
+        fi
+        scratch="wpbv_$$_$RANDOM"
+        mariadb -e "CREATE DATABASE \`$scratch\`"
+        if zcat "$tmp" | strip_db | mariadb "$scratch" 2>/tmp/wp-backup-verify.err; then
+            n=$(mariadb -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$scratch'")
+            live=$(mariadb -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME'")
+            if [ "$n" = 0 ] && [ "$live" = 0 ]; then res SKIP "$d" backup_db "empty database"
+            elif [ "$n" -gt 0 ]; then res PASS "$d" backup_db "snapshot $snap, $n tables loaded (live: $live)"
+            else res FAIL "$d" backup_db "snapshot $snap: dump has no tables"; fi
+        else
+            res FAIL "$d" backup_db "load failed: $(head -c 200 /tmp/wp-backup-verify.err)"
+        fi
+        mariadb -e "DROP DATABASE \`$scratch\`"; rm -f "$tmp" /tmp/wp-backup-verify.err
+    done
+    if [ -z "${1:-}" ]; then
+        if out=$(restic check --read-data-subset=5% 2>&1); then res PASS host restic_check "5% data read"
+        else res FAIL host restic_check "$(tail -n 2 <<<"$out" | tr '\n' ' ')"; fi
+    fi
+    exit "$failed"
+fi
+
+if [ "${1:-}" = restore ]; then
+    [ -n "${2:-}" ] || { echo "usage: wp-backup restore <domain> [snapshot]" >&2; exit 2; }
+    site_env "$2"
+    snap=${3:-$(snapshot_for "$2")}
+    [ -n "$snap" ] || { echo "no snapshot for $2" >&2; exit 1; }
+    target="/srv/restore/$2-$(date +%Y%m%d-%H%M%S)"
+    install -d -m 0700 /srv/restore "$target"
+    restic restore "$snap" --target "$target" --include "$SITES_ROOT/$2"
+    echo "restored snapshot $snap to $target$SITES_ROOT/$2 (live site untouched)"
+    echo "dump: $target$SITES_ROOT/$2/backup/db.sql.gz"
+    exit 0
+fi
+
+if [ "${1:-}" = restore-db ]; then
+    [ -n "${2:-}" ] && [ -f "${3:-}" ] && [ "${4:-}" = --yes ] || {
+        echo "usage: wp-backup restore-db <domain> <dump.sql.gz> --yes   (overwrites the live DB)" >&2; exit 2; }
+    site_env "$2"
+    gzip -t "$3"
+    zcat "$3" | tail -n 1 | grep -q 'Dump completed' || { echo "dump incomplete: $3" >&2; exit 1; }
+    before="$SITES_ROOT/$2/backup/db-before-restore-$(date +%Y%m%d-%H%M%S).sql.gz"
+    mariadb-dump --single-transaction --quick --routines --triggers --events \
+        --default-character-set=utf8mb4 --databases "$DB_NAME" | gzip -c > "$before"
+    echo "current DB saved: $before"
+    zcat "$3" | strip_db | mariadb "$DB_NAME"
+    echo "loaded $3 into $DB_NAME"
+    # Object cache (Valkey) and page cache still hold the old content.
+    wp=(runuser -u "$SITE_USER" -- env HOME=/tmp "php$PHP_VERSION" /usr/local/bin/wp --path="$SITES_ROOT/$2/htdocs")
+    "${wp[@]}" cache flush || echo "warning: wp cache flush failed"
+    if "${wp[@]}" plugin is-active nginx-helper 2>/dev/null; then
+        "${wp[@]}" nginx-helper purge-all || echo "warning: nginx-helper purge-all failed"
+    fi
+    exit 0
+fi
 
 step="start"
 fail() { tg-alert "wp-backup ${1:-all} FAILED at: $step" || true; }

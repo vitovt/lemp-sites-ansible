@@ -306,7 +306,31 @@ Vhost переходить на сертифікат LE під час того �
 4. Помилка → `tg-alert`.
 
 `wp-backup <domain>` — один сайт зараз (тег `site:<domain>`, без forget).
-Відновлення: `set -a; . /etc/restic/env; set +a; restic snapshots; restic restore <id> --target /root/restore`.
+`wp-backup verify [domain]` — перевірка бекапу без змін: для кожного сайту найновіший снапшот,
+у ньому є `version.php` і `wp-config.php`, дамп цілий («Dump completed») і завантажується в тимчасову
+БД (`wpbv_*`, видаляється одразу), плюс `restic check --read-data-subset=5%`. Рядки PASS/FAIL, код 1.
+Варто запускати після змін бекапу і раз на місяць.
+
+### Відновлення (runbook)
+
+```sh
+set -a; . /etc/restic/env; set +a; restic snapshots          # знайти снапшот (тег nightly або site:<d>)
+wp-backup restore example.com [snapshot]                      # → /srv/restore/example.com-<час>/srv/sites/example.com
+```
+
+Живий сайт `restore` не чіпає. Далі за потребою:
+
+1. Файли: `rsync -a --delete /srv/restore/<...>/srv/sites/example.com/htdocs/ /srv/sites/example.com/htdocs/`
+   (без `--delete`, якщо треба лише повернути окремі файли), потім `site-fix-perms example.com`
+   і `wp-git-commit example.com "restore"`. `wp-config.php` з бекапу містить ті самі паролі.
+2. БД: `wp-backup restore-db example.com /srv/restore/<...>/backup/db.sql.gz --yes`.
+   Спершу зберігає поточну БД у `backup/db-before-restore-<час>.sql.gz`. Рядки `CREATE DATABASE`/`USE`
+   з дампу (`--databases`) вирізаються, тому дамп сайту A можна залити в БД сайту B (потім
+   `wp search-replace`). Після заливки: `wp cache flush` і `nginx-helper purge-all` (робить сам).
+3. Адміни в БД з бекапу можуть відрізнятись: `wp-monitor --ack example.com`.
+4. `/srv/restore` видалити після роботи.
+5. Повна втрата сервера: `site.yml` на новому хості (той самий `secrets/`), змонтувати репозиторій,
+   `restic restore <id> --target / --include /srv/sites/<d>` для кожного сайту і `restore-db`.
 
 ## Моніторинг (wp_monitor)
 
