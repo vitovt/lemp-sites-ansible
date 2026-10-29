@@ -47,6 +47,5 @@
 - name: Manage FPM services
   ansible.builtin.import_tasks: services.yml
 
-# TODO: wp-cli install task (get_url of php_wpcli_url to php_wpcli_path,
-#   checksum sha512:<url>.sha512, mode 0755). Not written: tool review error.
-#   Until then install it by hand; the site role needs php_wpcli_path.
+- name: Install wp-cli
+  ansible.builtin.import_tasks: wpcli.yml

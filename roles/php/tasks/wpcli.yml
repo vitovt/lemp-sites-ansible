@@ -1,0 +1,9 @@
+---
+- name: Install wp-cli {{ php_wpcli_version }}
+  ansible.builtin.get_url:
+    url: "{{ php_wpcli_url }}"
+    dest: "{{ php_wpcli_path }}"
+    checksum: "sha512:{{ php_wpcli_sha512 }}"
+    owner: root
+    group: root
+    mode: "0755"
