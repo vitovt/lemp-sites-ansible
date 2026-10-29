@@ -8,7 +8,7 @@
     - { role: nginx, tags: [nginx] }
     - { role: php, tags: [php] }
     - { role: mariadb, tags: [mariadb] }
-    - { role: redis, tags: [redis] }
+    - { role: valkey, tags: [valkey] }
     - { role: certbot_cloudflare, tags: [certbot_cloudflare] }
     - { role: site, tags: [site] }
     - { role: backup_restic, tags: [backup_restic] }

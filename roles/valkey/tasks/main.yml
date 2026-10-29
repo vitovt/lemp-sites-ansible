@@ -1,0 +1,6 @@
+---
+- name: Valkey role is a stub
+  ansible.builtin.debug:
+    msg: >-
+      TODO valkey: install {{ valkey_package }}, unix socket {{ valkey_socket }},
+      per-site ACL users. Sites with redis: true get no object cache yet.

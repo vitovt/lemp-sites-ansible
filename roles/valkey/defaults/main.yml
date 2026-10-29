@@ -1,0 +1,12 @@
+---
+# STUB. Interface for the valkey role (object cache for sites with redis: true).
+# Valkey speaks the Redis protocol. WordPress keeps the "Redis Object Cache"
+# plugin and the WP_REDIS_* constants. The site flag stays "redis".
+valkey_package: valkey-server
+valkey_service: valkey-server
+valkey_socket: /run/valkey/valkey-server.sock
+valkey_socket_perm: "770"
+valkey_maxmemory: 256mb
+valkey_maxmemory_policy: allkeys-lru
+# Per-site ACL user "<user>" limited to keys "<user>:*"; password in
+# secrets/<host>/valkey/<domain>.pass (password lookup).

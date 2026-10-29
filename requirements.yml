@@ -16,7 +16,7 @@ collections:
 
 # No Galaxy roles on purpose (see README.md, section "Upstream"):
 # - geerlingguy.php-versions purges other PHP versions -> own `php` role.
-# - geerlingguy.redis has no per-site ACL users -> own small `redis` role.
+# - geerlingguy.redis has no per-site ACL users; we use Valkey -> own small `valkey` role.
 # - geerlingguy.certbot has no first-class DNS-01/Cloudflare flow -> own `certbot_cloudflare`.
 # - roles-ansible.restic needs a DB-dump pre-hook anyway -> own `backup_restic`.
 roles: []
