@@ -56,7 +56,8 @@
       ansible.builtin.command:
         argv:
           - rsync
-          - -a
+          # -a without -o/-g: files must not keep A's owner (site-fix-perms sets B's).
+          - -rlpt
           - --delete
           - --exclude=/wp-config.php
           - --exclude=/.git/
