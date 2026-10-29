@@ -1,5 +1,5 @@
-# {{ ansible_managed }}
-# Valkey ACL users. Applied on restart. Passwords are stored as SHA-256 only.
+{# No comments in the output: Valkey aborts on any line not starting with "user".
+   Managed by Ansible (valkey role). Applied on restart. Passwords as SHA-256 only. #}
 user default off resetkeys resetchannels -@all
 user admin on #{{ valkey_admin_pass | hash('sha256') }} ~* &* +@all
 {% for site in valkey_sites %}
