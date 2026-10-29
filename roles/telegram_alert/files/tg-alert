@@ -1,37 +1,60 @@
-#!/bin/sh
-# tg-alert "<text>"   or   echo "<text>" | tg-alert
-# Logs to syslog (tag tg-alert). If /etc/tg-alert.env exists (root only),
-# also sends the text to Telegram. Always exits 0.
-# Env file: TG_BOT_TOKEN=123:abc  TG_CHAT_ID=-100123
-ENV_FILE="${TG_ALERT_ENV:-/etc/tg-alert.env}"
-if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
-[ -n "$text" ] || exit 0
-host="$(hostname -f 2>/dev/null || hostname)"
-text="[$host] $text"
+#!/usr/bin/env python3
+"""Write a local alert and send bounded messages to Telegram. Return failure on lost delivery."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 
-printf '%s\n' "$text" | logger -t tg-alert -p user.warning || true
 
-if [ ! -r "$ENV_FILE" ]; then
-    logger -t tg-alert -p user.notice "no $ENV_FILE: Telegram not configured, logged only" || true
-    exit 0
-fi
-TG_BOT_TOKEN="$(sed -n 's/^TG_BOT_TOKEN=//p' "$ENV_FILE" | tr -d '"'"'"' \r')"
-TG_CHAT_ID="$(sed -n 's/^TG_CHAT_ID=//p' "$ENV_FILE" | tr -d '"'"'"' \r')"
-if [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
-    logger -t tg-alert -p user.err "TG_BOT_TOKEN or TG_CHAT_ID empty in $ENV_FILE" || true
-    exit 0
-fi
+def chunks(text, size=3500):
+    # Limit UTF-16 units as well as Unicode characters. Telegram counts entities this way.
+    chunk = ''
+    units = 0
+    for char in text:
+        cost = 2 if ord(char) > 0xffff else 1
+        if units + cost > size:
+            yield chunk
+            chunk, units = '', 0
+        chunk += char
+        units += cost
+    if chunk:
+        yield chunk
 
-# Telegram limit is 4096 chars per message.
-text="$(printf '%s' "$text" | cut -c1-4000)"
-err="$(mktemp)" || exit 0
-# Token goes via curl config on stdin, so it never shows up in ps.
-if ! printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TG_BOT_TOKEN" \
-    | curl -sS -f -m 20 --retry 2 -o /dev/null -K - \
-        --data-urlencode "chat_id=$TG_CHAT_ID" \
-        --data-urlencode "text=$text" \
-        --data-urlencode "disable_web_page_preview=true" 2>"$err"; then
-    logger -t tg-alert -p user.err "send failed: $(head -c 300 "$err")" || true
-fi
-rm -f "$err"
-exit 0
+
+def main():
+    text = ' '.join(sys.argv[1:]) if len(sys.argv) > 1 else sys.stdin.read()
+    if not text.strip():
+        return 0
+    text = f'[{os.uname().nodename}] {text}'
+    subprocess.run(['logger', '-t', 'tg-alert', '-p', 'user.warning'], input=text, text=True, check=False)
+    path = Path(os.environ.get('TG_ALERT_ENV', '/etc/tg-alert.env'))
+    if not path.exists():
+        return 1
+    values = {}
+    for line in path.read_text().splitlines():
+        if '=' in line and not line.startswith('#'):
+            key, value = line.split('=', 1)
+            values[key] = value.strip().strip("'\"")
+    token, chat = values.get('TG_BOT_TOKEN'), values.get('TG_CHAT_ID')
+    if not token or not chat:
+        return 1
+    try:
+        for chunk in chunks(text):
+            data = urllib.parse.urlencode({'chat_id': chat, 'text': chunk, 'disable_web_page_preview': 'true'}).encode()
+            request = urllib.request.Request(f'https://api.telegram.org/bot{token}/sendMessage', data=data)
+            with urllib.request.urlopen(request, timeout=20) as response:
+                if not json.load(response).get('ok'):
+                    return 1
+    except (OSError, ValueError, urllib.error.URLError):
+        # Never log the URL, which contains the bot token.
+        subprocess.run(['logger', '-t', 'tg-alert', '-p', 'user.err', 'Telegram delivery failed'], check=False)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -19,7 +19,7 @@
 #   php_in_writable   *.php / *.phtml / *.phar in uploads, cache, upgrade
 #   git_status        uncommitted or untracked files in htdocs (baseline: wp-git-commit)
 #   admin_users       administrators (id + login) vs baseline: added/removed = alert,
-#                     baseline follows after the alert
+#                     baseline changes only after an explicit --ack
 #   content_spike     more than monitor_content_max (site key, default 10) posts of any
 #                     type created in 24 h; 0 = off for the site
 wp_monitor_on_calendar: "*-*-* 04:30:00"

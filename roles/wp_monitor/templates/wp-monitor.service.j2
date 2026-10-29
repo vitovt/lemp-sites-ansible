@@ -6,7 +6,6 @@ After=nginx.service mariadb.service
 [Service]
 Type=oneshot
 ExecStart={{ wp_monitor_bin }}
-# Exit 1 = problems found (already alerted); do not mark the unit failed.
-SuccessExitStatus=1
+TimeoutStartSec=20min
 Nice=10
 IOSchedulingClass=idle

@@ -8,3 +8,4 @@ DISK_MIN_FREE_PCT={{ wp_monitor_disk_min_free_pct | int }}
 DROPINS='{{ wp_monitor_dropins | map('replace', '.', '\\.') | join('\|') }}'
 CONTENT_EXCLUDE_TYPES="{{ wp_monitor_content_exclude_types | join(' ') }}"
 CONTENT_ATTACHMENTS={{ 'yes' if wp_monitor_content_attachments | bool else 'no' }}
+REQUIRE_CERT={{ 'yes' if certbot_cloudflare_require_valid | default(true) | bool else 'no' }}

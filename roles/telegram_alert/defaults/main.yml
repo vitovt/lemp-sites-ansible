@@ -1,7 +1,6 @@
 ---
 # tg-alert "<text>" (or text on stdin): used by backup_restic and wp_monitor.
-# Always logs to syslog (tag tg-alert). Sends to Telegram only if the env file
-# exists on the target. Always exits 0, so callers never fail on alerting.
+# Logs to syslog (tag tg-alert). Returns failure if Telegram delivery is unavailable.
 telegram_alert_bin: /usr/local/sbin/tg-alert
 # Control node: KEY=VALUE file with TG_BOT_TOKEN and TG_CHAT_ID
 # (see secrets/telegram.env.example). Missing file = no Telegram, syslog only.
