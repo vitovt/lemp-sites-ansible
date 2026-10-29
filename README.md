@@ -455,8 +455,16 @@ Prod лишається на root по ключу.
    ```
    Скрипт перевіряє: `nginx -t`; FPM, MariaDB, Valkey, таймери; для кожного сайту HTTP 200,
    редирект http→https, PHP в `uploads` не виконується; `limit_req` для `wp-login.php`;
-   Valkey з `<user>-php`; `wp-monitor` чистий, після `stray.php` — помилка і запис `tg-alert`
-   у syslog; `wp-backup <d>`, повний `wp-backup`, `restic snapshots`.
+   Valkey з `<user>-php`; `wp-monitor` чистий, `--check` без FAIL і нічого не пише в стан;
+   підкладені файли (`stray.php`, `wp-content/x.php`, `.x.php`, `.user.ini`, PHP в `uploads`,
+   змінений `version.php`) ловляться відповідними перевірками, `--files` їх показує, алерт
+   іде в `tg-alert` (syslog); новий адмін — алерт з логіном і id, базова лінія оновлюється,
+   видалення адміна теж ловиться; 11 нових сторінок — `content_spike`, `CONTENT_MAX=100`
+   у `site.env` прибирає помилку; зупинені FPM і Valkey ловляться, сайт без Valkey дає 200;
+   `wp-backup <d>`, повний `wp-backup`, `restic snapshots`, `wp-backup verify`,
+   `restore` + `restore-db` (маркерний пост зникає, без `--yes` відмова).
+   Окремо з ноутбука: `playbooks/verify.yml` (усе PASS), `playbooks/doctor.yml`,
+   `playbooks/site-repair-core.yml -e repair_site=<d>` (звіт).
    Зовнішній 443 на VM не проброшено: усі HTTP-перевірки йдуть на самій VM через
    `curl -k --resolve <d>:443:127.0.0.1`.
 4. Додавання, клон і видалення (з ноутбука):
