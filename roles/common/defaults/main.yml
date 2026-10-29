@@ -27,7 +27,7 @@ common_unattended_auto_reboot: false
 
 # SSH: "devsec" = devsec.hardening.ssh_hardening (full sshd_config),
 #      "minimal" = small drop-in in /etc/ssh/sshd_config.d/ (key-only).
-common_ssh_provider: devsec
+common_ssh_provider: minimal
 
 # Expected platform. The role stops on anything else.
 common_expected_distribution: Debian
