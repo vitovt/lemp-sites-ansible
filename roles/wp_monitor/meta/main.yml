@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   author: Sysadmin bot
-  description: "Nightly WordPress integrity checks (STUB)"
+  description: "Nightly WordPress integrity checks"
   license: MIT
   min_ansible_version: "2.16"
   platforms:

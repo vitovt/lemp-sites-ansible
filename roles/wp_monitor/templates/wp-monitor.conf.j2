@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+STATE_DIR={{ wp_monitor_state_dir }}
+WPCLI={{ wp_monitor_wpcli }}
+CHECKS="{{ wp_monitor_checks | join(' ') }}"
+WRITABLE_DIRS="{{ site_writable_dirs | default(['wp-content/uploads', 'wp-content/cache', 'wp-content/upgrade']) | join(' ') }}"

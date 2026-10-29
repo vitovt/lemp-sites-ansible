@@ -1,4 +1,53 @@
 ---
-- name: WP monitor role is a stub
-  ansible.builtin.debug:
-    msg: "TODO wp_monitor: install check script + systemd timer ({{ wp_monitor_on_calendar }}), checks {{ wp_monitor_checks | join(\", \") }}."
+- name: Install wp-monitor dependencies
+  ansible.builtin.apt:
+    name:
+      - git
+      - curl
+    state: present
+    cache_valid_time: 3600
+
+- name: Create wp-monitor state dir
+  ansible.builtin.file:
+    path: "{{ wp_monitor_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install wp-monitor config
+  ansible.builtin.template:
+    src: wp-monitor.conf.j2
+    dest: /etc/wp-monitor.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install wp-monitor
+  ansible.builtin.copy:
+    src: wp-monitor
+    dest: "{{ wp_monitor_bin }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install wp-monitor service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - wp-monitor.service
+    - wp-monitor.timer
+  notify: Reload systemd for wp-monitor
+
+- name: Apply systemd changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable wp-monitor timer
+  ansible.builtin.systemd_service:
+    name: wp-monitor.timer
+    enabled: true
+    state: started

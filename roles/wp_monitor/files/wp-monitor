@@ -1,0 +1,99 @@
+#!/bin/bash
+# wp-monitor                 check all sites, one tg-alert if anything is wrong
+# wp-monitor <domain>        check one site
+# wp-monitor --ack <domain>  accept the current administrator list
+# Config: /etc/wp-monitor.conf. Exit 1 when problems were found.
+set -uo pipefail
+SITES_ROOT=/srv/sites
+. /etc/wp-monitor.conf
+mkdir -p "$STATE_DIR"; chmod 700 "$STATE_DIR"
+
+ACK=0
+if [ "${1:-}" = "--ack" ]; then ACK=1; shift; fi
+ONE="${1:-}"
+
+report=""
+add() { report+="$1"$'\n'; }
+has() { case " $CHECKS " in *" $1 "*) return 0;; esac; return 1; }
+
+wp_php() {  # wp-cli as the PHP user (read-only checks), right PHP version
+    runuser -u "$SITE_USER-php" -- env HOME="$dir/tmp" WP_CLI_CACHE_DIR="$dir/tmp/wp-cli-cache" \
+        "php$PHP_VERSION" "$WPCLI" --path="$dir/htdocs" --skip-plugins --skip-themes --no-color "$@"
+}
+
+check_site() {  # $1 = site dir
+    local dir="$1" DOMAIN SITE_USER PHP_VERSION out problems=""
+    eval "$(. "$dir/conf/site.env"; printf 'DOMAIN=%q SITE_USER=%q PHP_VERSION=%q' "$DOMAIN" "$SITE_USER" "$PHP_VERSION")"
+    p() { problems+="  - $1"$'\n'; }
+
+    if [ ! -f "$dir/htdocs/wp-includes/version.php" ]; then
+        echo "$DOMAIN: WordPress not installed, skipped"; return
+    fi
+
+    if has core_checksums; then
+        out=$(wp_php core verify-checksums 2>&1) || p "core checksums: $(grep -v '^Success' <<<"$out" | head -n 5 | tr '\n' ' ')"
+    fi
+
+    if has plugin_checksums; then
+        # JSON on stdout lists only real mismatches; non-wordpress.org plugins are skipped.
+        out=$(wp_php plugin verify-checksums --all --format=json 2>/dev/null)
+        out=$(grep -o '"plugin_name":"[^"]*","file":"[^"]*"' <<<"$out" | sed 's/"plugin_name":"\([^"]*\)","file":"\([^"]*\)"/\1: \2/')
+        [ -z "$out" ] || p "plugin checksums: $(head -n 5 <<<"$out" | tr '\n' ' ')"
+    fi
+
+    if has git_status; then
+        if [ ! -d "$dir/htdocs/.git" ]; then
+            wp-git-commit "$DOMAIN" "wp-monitor baseline" >/dev/null && echo "$DOMAIN: git baseline created"
+        else
+            out=$(runuser -u "$SITE_USER" -- git -C "$dir/htdocs" status --porcelain 2>&1)
+            [ -z "$out" ] || p "code changed (git status, $(wc -l <<<"$out") entries; accept: wp-git-commit $DOMAIN): $(head -n 5 <<<"$out" | tr '\n' ' ')"
+        fi
+    fi
+
+    if has php_in_writable; then
+        local d paths=()
+        for d in $WRITABLE_DIRS; do [ -d "$dir/htdocs/$d" ] && paths+=("$dir/htdocs/$d"); done
+        if [ ${#paths[@]} -gt 0 ]; then
+            out=$(find "${paths[@]}" -type f \( -iname '*.php*' -o -iname '*.phtml' -o -iname '*.phar' \) 2>/dev/null | head -n 5)
+            [ -z "$out" ] || p "PHP files in writable dirs: $(tr '\n' ' ' <<<"$out")"
+        fi
+    fi
+
+    if has admin_users; then
+        local state="$STATE_DIR/$DOMAIN.admins" new
+        if out=$(wp_php user list --role=administrator --field=user_login 2>/dev/null | sort -u); then
+            if [ ! -f "$state" ] || [ "$ACK" = 1 ]; then
+                printf '%s\n' "$out" > "$state"; echo "$DOMAIN: admin list saved ($(grep -c . <<<"$out"))"
+            else
+                new=$(comm -13 "$state" <(printf '%s\n' "$out") | grep . )
+                [ -z "$new" ] || p "new administrators: $(tr '\n' ' ' <<<"$new") (accept: wp-monitor --ack $DOMAIN)"
+            fi
+        else
+            p "admin users: wp user list failed"
+        fi
+    fi
+
+    if has http_home; then
+        out=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 \
+            --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/" 2>/dev/null)
+        [ "$out" = "200" ] || p "homepage https://$DOMAIN/ returned ${out:-no answer}"
+    fi
+
+    if [ -n "$problems" ]; then add "$DOMAIN:"$'\n'"$problems"; else echo "$DOMAIN: ok"; fi
+}
+
+found=0
+for env in "$SITES_ROOT"/*/conf/site.env; do
+    [ -e "$env" ] || continue
+    dir=$(dirname "$(dirname "$env")")
+    [ -z "$ONE" ] || [ "$(basename "$dir")" = "$ONE" ] || continue
+    found=1
+    check_site "$dir"
+done
+[ "$found" = 1 ] || { [ -z "$ONE" ] || { echo "unknown site: $ONE" >&2; exit 2; }; }
+
+if [ -n "$report" ]; then
+    printf 'wp-monitor found problems:\n%s' "$report"
+    printf 'wp-monitor found problems:\n%s' "$report" | tg-alert
+    exit 1
+fi

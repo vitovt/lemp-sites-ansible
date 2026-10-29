@@ -1,12 +1,22 @@
 ---
-# STUB. Interface for wp_monitor (nightly integrity checks per site).
-# Checks: wp core verify-checksums, wp plugin verify-checksums --all,
-# git status in htdocs (see wp-git-commit), admin user list compared
-# with a state file. Any change -> telegram-alert.
+# Nightly integrity checks per site (/srv/sites/*/conf/site.env).
+# One combined tg-alert per run, only when something is wrong.
+# Checks (all on by default):
+#   core_checksums    wp core verify-checksums
+#   plugin_checksums  wp plugin verify-checksums --all (wordpress.org plugins only;
+#                     others are skipped by wp-cli, not reported)
+#   git_status        git status --porcelain in htdocs (baseline on first run, see wp-git-commit)
+#   php_in_writable   *.php / *.phtml / *.phar in uploads, cache, upgrade
+#   admin_users       administrators vs stored list (accept: wp-monitor --ack <domain>)
+#   http_home         https://<domain>/ via 127.0.0.1 must return 200
 wp_monitor_on_calendar: "*-*-* 04:30:00"
 wp_monitor_state_dir: /var/lib/wp-monitor
+wp_monitor_bin: /usr/local/sbin/wp-monitor
+wp_monitor_wpcli: /usr/local/bin/wp
 wp_monitor_checks:
   - core_checksums
   - plugin_checksums
   - git_status
+  - php_in_writable
   - admin_users
+  - http_home
