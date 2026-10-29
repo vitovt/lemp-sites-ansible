@@ -1,6 +1,60 @@
 ---
-- name: Valkey role is a stub
-  ansible.builtin.debug:
-    msg: >-
-      TODO valkey: install {{ valkey_package }}, unix socket {{ valkey_socket }},
-      per-site ACL users. Sites with redis: true get no object cache yet.
+- name: Install Valkey
+  ansible.builtin.apt:
+    name: "{{ valkey_package }}"
+    state: present
+    cache_valid_time: 3600
+
+# Same default as the site role: user = domain with "." and "-" as "_".
+- name: List sites with object cache
+  ansible.builtin.set_fact:
+    valkey_sites: >-
+      {%- set out = [] -%}
+      {%- for domain, cfg in (wp_sites | default({})).items() -%}
+      {%- set cfg = cfg | default({}, true) -%}
+      {%- if cfg.redis | default(true) | bool -%}
+      {%- set _ = out.append({'domain': domain, 'user': cfg.user | default(domain | regex_replace('[.-]', '_'))}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Read or create admin password
+  ansible.builtin.set_fact:
+    valkey_admin_pass: >-
+      {{ lookup('ansible.builtin.password', valkey_secrets_dir ~ '/admin.pass',
+         chars=['ascii_letters', 'digits'], length=32) }}
+  no_log: true
+
+- name: Install Valkey config
+  ansible.builtin.template:
+    src: valkey.conf.j2
+    dest: "{{ valkey_conf }}"
+    owner: valkey
+    group: valkey
+    mode: "0640"
+  notify: Restart valkey
+
+- name: Install Valkey ACL users
+  ansible.builtin.template:
+    src: users.acl.j2
+    dest: "{{ valkey_aclfile }}"
+    owner: valkey
+    group: valkey
+    mode: "0640"
+  diff: false
+  notify: Restart valkey
+
+- name: Store admin password for root
+  ansible.builtin.copy:
+    content: "{{ valkey_admin_pass }}\n"
+    dest: "{{ valkey_admin_pass_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Enable and start Valkey
+  ansible.builtin.systemd_service:
+    name: "{{ valkey_service }}"
+    enabled: true
+    state: started

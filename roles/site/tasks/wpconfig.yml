@@ -2,6 +2,15 @@
 # Created once. Later edits by hand (as root, then site_fix_perms).
 # Group <user> lets <user>-php read it; www-data can read it too,
 # but nginx never serves .php source (wp-rules + fastcgi only).
+- name: Read or create Valkey password
+  ansible.builtin.set_fact:
+    site_valkey_pass: >-
+      {{ lookup('ansible.builtin.password',
+         secrets_dir ~ '/' ~ inventory_hostname ~ '/valkey/' ~ site_cfg.domain ~ '.pass',
+         chars=['ascii_letters', 'digits'], length=32) }}
+  when: site_cfg.redis | bool
+  no_log: true
+
 - name: Create wp-config.php
   ansible.builtin.template:
     src: wp-config.php.j2

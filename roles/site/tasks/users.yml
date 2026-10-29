@@ -33,3 +33,16 @@
     groups: "{{ site_cfg.user }}"
     append: true
   notify: reload nginx
+
+# Object cache: the Valkey socket is mode 770, group valkey. <user> too, so
+# owner-run wp-cli (updates) can flush the site's cache.
+- name: Add site users to Valkey group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ valkey_group | default('valkey') }}"
+    append: true
+  loop:
+    - "{{ site_cfg.user }}-php"
+    - "{{ site_cfg.user }}"
+  when: site_cfg.redis | bool
+  notify: Reload php-fpm

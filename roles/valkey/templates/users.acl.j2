@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# Valkey ACL users. Applied on restart. Passwords are stored as SHA-256 only.
+user default off resetkeys resetchannels -@all
+user admin on #{{ valkey_admin_pass | hash('sha256') }} ~* &* +@all
+{% for site in valkey_sites %}
+user {{ site.user }} on #{{ lookup('ansible.builtin.password', valkey_secrets_dir ~ '/' ~ site.domain ~ '.pass', chars=['ascii_letters', 'digits'], length=32) | hash('sha256') }} ~{{ site.user }}:* {{ valkey_site_acl_rules }}
+{% endfor %}

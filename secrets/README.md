@@ -9,7 +9,8 @@ except this README and `*.example` files. Keep files at mode 0600.
 | `telegram_bot_token` | You (one line, token only) | telegram_alert |
 | `telegram_chat_id` | You (one line, chat id only) | telegram_alert |
 | `<host>/db/<domain>.pass` | Ansible (`password` lookup) | site |
-| `<host>/redis/<domain>.pass` | Ansible (`password` lookup) | redis, site |
+| `<host>/valkey/<domain>.pass` | Ansible (`password` lookup) | valkey, site |
+| `<host>/valkey/admin.pass` | Ansible (`password` lookup) | valkey (admin user for root) |
 | `<host>/restic.pass` | Ansible (`password` lookup) | backup_restic |
 
 Back up this directory separately (for example in a password manager).

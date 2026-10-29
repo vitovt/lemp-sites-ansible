@@ -1,12 +1,24 @@
 ---
-# STUB. Interface for the valkey role (object cache for sites with redis: true).
-# Valkey speaks the Redis protocol. WordPress keeps the "Redis Object Cache"
-# plugin and the WP_REDIS_* constants. The site flag stays "redis".
+# Valkey (Redis protocol) object cache for sites with redis: true.
+# WordPress keeps the "Redis Object Cache" plugin and the WP_REDIS_* constants.
+# The site flag stays "redis".
 valkey_package: valkey-server
 valkey_service: valkey-server
+# Unix socket only: no TCP listener (port 0).
 valkey_socket: /run/valkey/valkey-server.sock
 valkey_socket_perm: "770"
+# Members of this group may connect (site role adds <user>-php and <user>).
+valkey_group: valkey
 valkey_maxmemory: 256mb
 valkey_maxmemory_policy: allkeys-lru
-# Per-site ACL user "<user>" limited to keys "<user>:*"; password in
-# secrets/<host>/valkey/<domain>.pass (password lookup).
+valkey_conf: /etc/valkey/valkey.conf
+valkey_aclfile: /etc/valkey/users.acl
+# Passwords: generated on the control node, kept in secrets/ (gitignored).
+#   secrets/<host>/valkey/<domain>.pass  per-site ACL user "<user>" (keys "<user>:*")
+#   secrets/<host>/valkey/admin.pass     admin user for root (valkey-cli)
+valkey_secrets_dir: "{{ secrets_dir }}/{{ inventory_hostname }}/valkey"
+# Per-site rules after the key pattern. FLUSHDB/KEYS etc. are @dangerous:
+# a site can only flush its own keys (WP_REDIS_SELECTIVE_FLUSH).
+valkey_site_acl_rules: "resetchannels +@all -@admin -@dangerous +info"
+# On the target, for root: valkey-cli --user admin --pass "$(cat <file>)"
+valkey_admin_pass_file: /root/.valkey-admin.pass

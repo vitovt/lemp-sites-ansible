@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+# Object cache only: unix socket, no TCP, no persistence.
+port 0
+unixsocket {{ valkey_socket }}
+unixsocketperm {{ valkey_socket_perm }}
+protected-mode yes
+timeout 0
+tcp-keepalive 300
+
+# The Debian unit passes --supervised systemd --daemonize no.
+daemonize no
+pidfile /run/valkey/valkey-server.pid
+loglevel notice
+logfile /var/log/valkey/valkey-server.log
+hide-user-data-from-log yes
+dir /var/lib/valkey
+databases 16
+
+maxmemory {{ valkey_maxmemory }}
+maxmemory-policy {{ valkey_maxmemory_policy }}
+lazyfree-lazy-eviction yes
+lazyfree-lazy-expire yes
+lazyfree-lazy-server-del yes
+lazyfree-lazy-user-del yes
+lazyfree-lazy-user-flush yes
+
+# Cache only: nothing to restore after restart.
+save ""
+appendonly no
+
+# Per-site users; "default" is off (see users.acl).
+aclfile {{ valkey_aclfile }}
+acllog-max-len 128

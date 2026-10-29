@@ -24,10 +24,15 @@ define( 'WP_DEBUG', false );
 {% if site_cfg.redis %}
 
 // Redis Object Cache plugin -> Valkey (Redis protocol), unix socket.
+// ACL user <user> may only touch keys "<user>:*" (valkey role, users.acl).
 define( 'WP_REDIS_SCHEME', 'unix' );
 define( 'WP_REDIS_PATH', '{{ valkey_socket | default('/run/valkey/valkey-server.sock') }}' );
 define( 'WP_REDIS_PREFIX', '{{ site_cfg.user }}:' );
-// TODO: WP_REDIS_USERNAME / WP_REDIS_PASSWORD (per-site ACL user) when the valkey role is done.
+define( 'WP_REDIS_USERNAME', '{{ site_cfg.user }}' );
+// The plugin reads ACL credentials as [user, password] from WP_REDIS_PASSWORD.
+define( 'WP_REDIS_PASSWORD', [ WP_REDIS_USERNAME, '{{ site_valkey_pass }}' ] );
+// Shared instance: FLUSHDB is denied; flush only this site's prefix.
+define( 'WP_REDIS_SELECTIVE_FLUSH', true );
 {% endif %}
 
 if ( ! defined( 'ABSPATH' ) ) {
