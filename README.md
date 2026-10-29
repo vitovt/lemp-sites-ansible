@@ -37,6 +37,7 @@ python3 -m venv .venv
 | `playbooks/site-backup.yml` | Бекап зараз: один сайт (`-e wp_site_only=<domain>`) або все. |
 | `playbooks/site-remove.yml` | Видалення сайту (спершу бекап і архів). |
 | `playbooks/site-clone.yml` | Клон сайту A у сайт B. |
+| `playbooks/site-repair-core.yml` | Звіт і ремонт ядра WordPress одного сайту після алерту цілісності. |
 
 Один сайт:
 
@@ -337,6 +338,21 @@ wp-git-commit <domain> "опис"  # прийняти зміни коду (git b
 
 Пороги й перелік перевірок: `roles/wp_monitor/defaults/main.yml` → `/etc/wp-monitor.conf`.
 Сайт без WordPress пропускається (SKIP).
+
+### Ремонт ядра (site-repair-core.yml)
+
+Нічого не видаляє і не комітить. Без `confirm` — тільки звіт (`wp-monitor --files`).
+
+```sh
+ansible-playbook playbooks/site-repair-core.yml --limit wp01 -e repair_site=example.com
+# та сама версія ядра поверх (wp core download --force --skip-content; wp-content не чіпає), site-fix-perms:
+ansible-playbook playbooks/site-repair-core.yml --limit wp01 -e repair_site=example.com -e confirm=example.com
+# + перенести зайві/підозрілі PHP-файли в /srv/sites/<d>/quarantine/<час UTC>/ (root, 0700):
+... -e confirm=example.com -e quarantine=true
+```
+
+Потім: `git status` у `htdocs` (від власника), `wp-git-commit <d> "core repair"`.
+Плагіни з поганими checksums — перевстановити (`wp plugin install <slug> --force`).
 
 ## Видалення і клон
 

@@ -1,0 +1,121 @@
+---
+# Repair WordPress core of one site after a wp-monitor integrity alert.
+#   ansible-playbook playbooks/site-repair-core.yml --limit wp01 -e repair_site=<d>
+#     report only: wp-monitor --files (modified/missing core, extra and stray PHP files)
+#   ... -e confirm=<d>
+#     re-download the same core version over it (wp core download --force --skip-content:
+#     wp-content is not touched), site-fix-perms, report again
+#   ... -e confirm=<d> -e quarantine=true
+#     also move the listed extra/stray PHP files to /srv/sites/<d>/quarantine/<time>/
+#     (root only, 0700). Nothing is ever deleted, nothing is committed to git:
+#     review with git status in htdocs, then wp-git-commit <d> "core repair".
+# Plugins with failed checksums: reinstall them in WordPress (or wp plugin install --force).
+- name: Repair WordPress core
+  hosts: wp
+  become: true
+  gather_facts: false
+  vars:
+    repair_d: "{{ repair_site | default('') }}"
+    repair_go: "{{ (confirm | default('')) == repair_d }}"
+    repair_root: "/srv/sites/{{ repair_d }}"
+    repair_monitor: "{{ wp_monitor_bin | default('/usr/local/sbin/wp-monitor') }}"
+  tasks:
+    - name: Check arguments
+      ansible.builtin.assert:
+        that:
+          - repair_d is match('^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$')
+        fail_msg: "Usage: -e repair_site=<domain> [-e confirm=<domain> [-e quarantine=true]]"
+        quiet: true
+
+    - name: Read site facts
+      ansible.builtin.slurp:
+        src: "{{ repair_root }}/conf/site.env"
+      register: repair_env_raw
+
+    - name: Parse site facts
+      ansible.builtin.set_fact:
+        repair_env: "{{ dict(repair_env_raw.content | b64decode | regex_findall('(?m)^([A-Z_]+)=\"?([^\"\\n]*)\"?$')) }}"
+
+    - name: Integrity report before
+      ansible.builtin.command:
+        argv: ["{{ repair_monitor }}", --files, "{{ repair_d }}"]
+      register: repair_before
+      changed_when: false
+      failed_when: repair_before.rc > 1
+
+    - name: Show report before
+      ansible.builtin.debug:
+        msg: "{{ repair_before.stdout_lines | reject('match', '^FILE ') | list
+                 + ([] if repair_go else ['Report only. Repair: -e confirm=' ~ repair_d ~ ' [-e quarantine=true]']) }}"
+
+    - name: Repair
+      when: repair_go | bool
+      vars:
+        repair_wp: >-
+          {{ ['runuser', '-u', repair_env.SITE_USER, '--', 'env', 'HOME=/tmp',
+              'php' ~ repair_env.PHP_VERSION, php_wpcli_path | default('/usr/local/bin/wp'),
+              '--path=' ~ repair_root ~ '/htdocs', '--skip-plugins', '--skip-themes'] }}
+        repair_files: "{{ repair_before.stdout_lines | select('match', '^FILE ') | map('regex_replace', '^FILE ', '') | list }}"
+      block:
+        - name: Read core version and locale
+          ansible.builtin.command:
+            argv: "{{ repair_wp + ['eval', 'global $wp_version, $wp_local_package; echo $wp_version, \" \", $wp_local_package ?: \"en_US\";'] }}"
+          register: repair_ver
+          changed_when: false
+
+        - name: Re-download core over the site
+          ansible.builtin.command:
+            argv: >-
+              {{ repair_wp + ['core', 'download', '--force', '--skip-content',
+                 '--version=' ~ repair_ver.stdout.split()[0], '--locale=' ~ repair_ver.stdout.split()[1]] }}
+          changed_when: true
+
+        - name: Refuse unsafe paths
+          ansible.builtin.assert:
+            that:
+              - repair_files | select('search', '(^/|(^|/)\.\.(/|$))') | list | length == 0
+            fail_msg: "Unexpected paths in the report: {{ repair_files }}"
+            quiet: true
+
+        - name: Quarantine extra and stray files
+          when: (quarantine | default(false) | bool) and repair_files | length > 0
+          vars:
+            repair_q: "{{ repair_root }}/quarantine/{{ now(utc=true, fmt='%Y%m%d-%H%M%S') }}"
+          ansible.builtin.shell:
+            cmd: |
+              set -eu
+              install -d -o root -g root -m 0700 "{{ repair_root }}/quarantine" "$Q"
+              while IFS= read -r f; do
+                [ -e "$H/$f" ] || continue
+                mkdir -p "$Q/$(dirname "$f")"
+                mv -n -- "$H/$f" "$Q/$f"
+                echo "$f"
+              done
+            stdin: "{{ repair_files | join('\n') }}"
+            executable: /bin/bash
+          environment:
+            H: "{{ repair_root }}/htdocs"
+            Q: "{{ repair_q }}"
+          register: repair_moved
+          changed_when: repair_moved.stdout | length > 0
+
+        - name: Reset owner and modes
+          ansible.builtin.command:
+            argv: [/usr/local/sbin/site-fix-perms, "{{ repair_d }}"]
+          changed_when: true
+
+        - name: Integrity report after
+          ansible.builtin.command:
+            argv: ["{{ repair_monitor }}", --files, "{{ repair_d }}"]
+          register: repair_after
+          changed_when: false
+          failed_when: repair_after.rc > 1
+
+        - name: Show report after
+          ansible.builtin.debug:
+            msg: >-
+              {{ repair_after.stdout_lines | reject('match', '^FILE ') | list
+                 + (['Moved to quarantine: ' ~ (repair_moved.stdout_lines | join(', '))]
+                    if repair_moved.stdout_lines | default([]) | length > 0 else [])
+                 + ['Not committed. Review: git -C ' ~ repair_root ~ '/htdocs status; then wp-git-commit '
+                    ~ repair_d ~ ' "core repair"'] }}
