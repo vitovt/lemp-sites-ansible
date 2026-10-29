@@ -1,0 +1,10 @@
+---
+# Root tools loop over /srv/sites/*/conf/site.env, so they also work for a
+# site that is already gone from the inventory (site-remove).
+- name: Write site facts file
+  ansible.builtin.template:
+    src: site.env.j2
+    dest: "{{ site_cfg.path }}/conf/site.env"
+    owner: root
+    group: root
+    mode: "0644"

@@ -24,6 +24,8 @@
   ansible.builtin.include_tasks: users.yml
 - name: Directories ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: dirs.yml
+- name: Site facts file ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: siteenv.yml
 - name: Database ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: db.yml
 - name: PHP-FPM pool ({{ site_cfg.domain }})
