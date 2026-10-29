@@ -1,0 +1,63 @@
+#!/bin/bash
+# wp-backup            nightly run: dump all site DBs, restic backup, forget/prune, check
+# wp-backup <domain>   one site now: dump its DB, restic backup of /srv/sites/<domain>
+# Config: /etc/restic/env. Sites: /srv/sites/*/conf/site.env (site role).
+# On failure: tg-alert, exit 1.
+set -euo pipefail
+umask 077
+SITES_ROOT=/srv/sites
+set -a; . /etc/restic/env; set +a
+
+step="start"
+fail() { tg-alert "wp-backup ${1:-all} FAILED at: $step" || true; }
+trap 'rc=$?; [ $rc -eq 0 ] || fail "${ONE:-}"; exit $rc' EXIT
+
+ONE="${1:-}"
+exec 9>/run/wp-backup.lock
+step="lock"
+flock -w 3600 9
+
+dump_site() {  # $1 = site dir
+    local env="$1/conf/site.env" DOMAIN DB_NAME out tmp
+    DOMAIN=$(. "$env"; echo "$DOMAIN"); DB_NAME=$(. "$env"; echo "$DB_NAME")
+    step="dump $DOMAIN"
+    out="$1/backup/db.sql.gz"; tmp="$out.tmp"
+    mariadb-dump --single-transaction --quick --routines --triggers --events \
+        --default-character-set=utf8mb4 --databases "$DB_NAME" | gzip -c > "$tmp"
+    gzip -t "$tmp"
+    zcat "$tmp" | tail -n 1 | grep -q 'Dump completed'
+    mv -f "$tmp" "$out"
+    echo "dumped $DOMAIN ($DB_NAME): $(stat -c %s "$out") bytes"
+}
+
+excludes=()
+for e in $BACKUP_EXCLUDES; do excludes+=(--exclude "$e"); done
+
+if [ -n "$ONE" ]; then
+    dir="$SITES_ROOT/$ONE"
+    [ -f "$dir/conf/site.env" ] || { echo "unknown site: $ONE" >&2; step="unknown site"; exit 1; }
+    dump_site "$dir"
+    step="restic backup $ONE"
+    restic backup --quiet --tag manual --tag "site:$ONE" "${excludes[@]}" "$dir"
+    echo "snapshot done: $ONE"
+    exit 0
+fi
+
+for env in "$SITES_ROOT"/*/conf/site.env; do
+    [ -e "$env" ] || continue
+    dump_site "$(dirname "$(dirname "$env")")"
+done
+
+paths=()
+for p in $BACKUP_PATHS; do [ -e "$p" ] && paths+=("$p"); done
+step="restic backup"
+rc=0
+restic backup --quiet --tag nightly "${excludes[@]}" "${paths[@]}" || rc=$?
+# 3 = snapshot made, some files unreadable: alert, keep going.
+if [ $rc -eq 3 ]; then tg-alert "wp-backup: snapshot incomplete (some files unreadable)"; elif [ $rc -ne 0 ]; then exit $rc; fi
+
+step="restic forget/prune"
+restic forget --quiet --prune --keep-daily "$KEEP_DAILY" --keep-weekly "$KEEP_WEEKLY" --keep-monthly "$KEEP_MONTHLY"
+step="restic check"
+restic check --quiet
+echo "nightly backup done"

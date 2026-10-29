@@ -1,10 +1,22 @@
 ---
-# STUB: back up one site now (DB dump + restic snapshot).
-#   ansible-playbook playbooks/site-backup.yml --limit wp01 -e wp_site_only=<domain>
-- name: Back up one site
+# Back up now (same script as the nightly timer: wp-backup).
+#   one site: ansible-playbook playbooks/site-backup.yml --limit wp01 -e wp_site_only=<domain>
+#   full run: ansible-playbook playbooks/site-backup.yml --limit wp01
+# One site = DB dump + restic snapshot of /srv/sites/<domain> (tag site:<domain>).
+# Full run = all dumps, snapshot of all paths, forget/prune, check.
+- name: Back up now
   hosts: wp
+  become: true
   gather_facts: false
+  vars:
+    site_backup_domain: "{{ wp_site_only | default('') }}"
   tasks:
-    - name: Not implemented
-      ansible.builtin.fail:
-        msg: "TODO site-backup: needs the backup_restic role."
+    - name: Run wp-backup
+      ansible.builtin.command:
+        argv: "{{ ['/usr/local/sbin/wp-backup'] + ([site_backup_domain] if site_backup_domain else []) }}"
+      register: site_backup_out
+      changed_when: true
+
+    - name: Show result
+      ansible.builtin.debug:
+        var: site_backup_out.stdout_lines

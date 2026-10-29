@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Nightly WordPress backup
+
+[Timer]
+OnCalendar={{ backup_restic_on_calendar }}
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

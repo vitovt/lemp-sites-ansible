@@ -1,7 +1,93 @@
 ---
-- name: Backup restic role is a stub
-  ansible.builtin.debug:
-    msg: >-
-      TODO backup_restic: assert {{ backup_restic_mount }} is a mountpoint, install restic,
-      init {{ backup_restic_repo }}, verified DB dumps, systemd timer, forget/prune,
-      Telegram alert on failure.
+- name: Install restic
+  ansible.builtin.apt:
+    name: restic
+    state: present
+    cache_valid_time: 3600
+
+- name: Check backup mountpoint
+  ansible.builtin.command:
+    cmd: "mountpoint -q {{ backup_restic_mount }}"
+  register: backup_restic_mountpoint
+  changed_when: false
+  failed_when: false
+
+- name: Require a mounted backup disk
+  ansible.builtin.assert:
+    that:
+      - backup_restic_mountpoint.rc == 0
+    fail_msg: >-
+      {{ backup_restic_mount }} is not a mountpoint. Mount the backup disk first
+      (or set backup_require_mount=false, tests only).
+    quiet: true
+  when: backup_restic_require_mount | bool
+
+- name: Create backup dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - "{{ backup_restic_mount }}"
+    - "{{ backup_restic_repo }}"
+    - "{{ backup_restic_removed_dir }}"
+    - "{{ backup_restic_conf_dir }}"
+    - /var/cache/restic
+
+- name: Install repo password (root only)
+  ansible.builtin.copy:
+    content: >-
+      {{ lookup('ansible.builtin.password', backup_restic_password_src,
+         chars=['ascii_letters', 'digits'], length=48) }}
+    dest: "{{ backup_restic_conf_dir }}/password"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Install restic env
+  ansible.builtin.template:
+    src: restic.env.j2
+    dest: "{{ backup_restic_conf_dir }}/env"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Initialise restic repo
+  ansible.builtin.command:
+    cmd: restic init
+    creates: "{{ backup_restic_repo }}/config"
+  environment:
+    RESTIC_REPOSITORY: "{{ backup_restic_repo }}"
+    RESTIC_PASSWORD_FILE: "{{ backup_restic_conf_dir }}/password"
+
+- name: Install wp-backup
+  ansible.builtin.copy:
+    src: wp-backup
+    dest: "{{ backup_restic_bin }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install backup service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - wp-backup.service
+    - wp-backup.timer
+  notify: Reload systemd for backup
+
+- name: Apply systemd changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable backup timer
+  ansible.builtin.systemd_service:
+    name: wp-backup.timer
+    enabled: true
+    state: started
