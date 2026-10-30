@@ -11,6 +11,9 @@ except this README and `*.example` files. Keep files at mode 0600.
 | `<host>/valkey/<domain>.pass` | Ansible (`password` lookup) | valkey, site |
 | `<host>/valkey/admin.pass` | Ansible (`password` lookup) | valkey (admin user for root) |
 | `<host>/restic.pass` | Ansible (`password` lookup) | backup_restic |
+| `<host>/wp-admin/<domain>.pass` | Ansible (`password` lookup) | Fresh WordPress installation |
 
 Back up this directory separately (for example in a password manager).
 Without `restic.pass` the backups cannot be restored.
+An existing resource needs its original secret. A missing file stops preflight.
+See [Deployment](../Docs/DEPLOYMENT.md) and [Operations](../Docs/OPERATIONS.md).
