@@ -1,0 +1,21 @@
+---
+- name: Read installed services before applying the no-SMTP policy
+  ansible.builtin.service_facts:
+  when: not (firewall_smtp_enabled | default(false) | bool)
+
+- name: Stop and mask installed mail transport services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - postfix.service
+    - postfix@-.service
+    - exim4.service
+    - sendmail.service
+    - opensmtpd.service
+    - nullmailer.service
+  when:
+    - not (firewall_smtp_enabled | default(false) | bool)
+    - item in ansible_facts.services

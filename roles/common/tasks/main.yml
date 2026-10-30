@@ -37,5 +37,8 @@
 - name: Configure unattended upgrades
   ansible.builtin.import_tasks: unattended.yml
 
+- name: Disable unwanted local mail services
+  ansible.builtin.import_tasks: mail.yml
+
 - name: Configure SSH
   ansible.builtin.import_tasks: ssh.yml

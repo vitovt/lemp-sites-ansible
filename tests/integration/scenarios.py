@@ -57,6 +57,8 @@ class Scenarios(unittest.TestCase):
         run('nginx', '-t', '-q')
         self.assertIn('200', request(A['domain'], ipv6=True).splitlines()[0])
         self.assertNotIn(':3306', run('ss', '-ltn').stdout)
+        for line in run('ss', '-H', '-ltn').stdout.splitlines():
+            self.assertNotIn(line.split()[3].rsplit(':', 1)[-1], ['25', '465', '587', '2525'])
         for s in [A, B]:
             # A new installation contains only the declared administrator.
             admins = wp(s, 'user', 'list', '--role=administrator', '--field=user_login').stdout.decode().strip()

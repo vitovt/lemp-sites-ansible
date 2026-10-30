@@ -145,5 +145,7 @@ Install an external uptime and heartbeat service. A local service cannot report
 its own host power loss.
 
 SMTP ports 25, 465, 587, and 2525 are blocked by default. PHP sendmail is disabled.
-No MTA is installed. Future mail support requires an explicit firewall change and
-a reviewed transport configuration. HTTP mail APIs are outside the SMTP port block.
+The roles do not install an MTA. With SMTP disabled, known MTA services from the
+base image are stopped and masked. Future mail support requires an explicit
+firewall change and a reviewed transport configuration. HTTP mail APIs are outside
+the SMTP port block.
