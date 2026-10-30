@@ -7,7 +7,7 @@ Features:
 
 - Nginx, PHP-FPM, MariaDB, and Valkey.
 - Separate users, database accounts, and PHP pools for each site.
-- Public IPv6 or a trusted Nginx proxy on the local network.
+- Direct public IPv6, a trusted LAN Nginx proxy, or both.
 - Optional Cloudflare-only access and trusted visitor IP headers.
 - An IPv4 and IPv6 firewall. SMTP is blocked by default.
 - Let's Encrypt certificates with Cloudflare DNS-01, or HTTP-01 through Nginx.

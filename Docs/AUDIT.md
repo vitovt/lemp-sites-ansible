@@ -25,6 +25,8 @@ of a remote exploit. No production compromise was investigated or confirmed.
 | High | Existing WordPress DB settings could differ from the database being backed up. | Read static constants without executing PHP and require agreement before changes. Dynamic settings require a separate migration. |
 | High | Shared Nginx could follow a site-created symlink to private content. | Disable webroot symlink access. A VM cross-site symlink test cannot retrieve the target config. |
 | High | Clone overwrote target data without rollback or a maintenance barrier. | Lock operations, freeze writers, save recovery data, stage imports, and restore the target after failure. Injected clone failure and staging tests pass. |
+| High | The maintenance exception added in the earlier hardening pass trusted a loopback health header. Another site's PHP could use it to bypass maintenance. | Use a Unix listener inside a root-only directory. The LXC test denies PHP-user access and TCP header bypass while root update checks still work. |
+| High | A downloaded core could expose the web installer before automated DB setup completed. An interrupted installation could leave that window open. | Claim a private installation maintenance marker before download and release it only after installation checks. Resume tests require HTTP 503 while incomplete. |
 | High | Root SQL imports relied on removing USE lines. SQL could address another schema. | Import with an account restricted to one database. Reject unsupported SQL object types. Hostile USE statements fail in MariaDB tests. |
 | High | A site-controlled password could add root client options through a newline. Ambient root client settings could also override the import account. These were found during the fixes. | Quote option-file values, reject NUL, and load only the private import config. Special-password and restricted-schema regressions cover these cases. |
 | Medium | Restore left tables that were absent from the snapshot. | Replace the schema from a staged, checked dump and retain rollback data. An extra table disappears after restore. |
@@ -68,4 +70,6 @@ See the [MariaDB client option-file reference](https://github.com/mariadb-corpor
 | Manual trust decisions | Imported code, clone integrations, and incident recovery need review. An automatic baseline would hide important changes. |
 
 The obsolete privileged Docker smoke test is no longer the test entry point.
-The tested VM is QEMU/KVM. An unprivileged LXC remains a separate release check.
+The first tested VM was QEMU/KVM. The later unprivileged LXC run and its limits
+are recorded in Validation. The actual parent proxy and public CA flows still
+need separate checks.

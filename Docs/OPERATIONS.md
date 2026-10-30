@@ -18,8 +18,9 @@ A failed site deployment keeps the requested inventory entry for recovery.
 Correct the error and run convergence again. Do not assume that a failed play
 made no changes to the target.
 
-A clone keeps separate target credentials. It requires confirmation before it
-overwrites an installed target. The operation saves rollback SQL and files,
+A clone keeps the target database and Valkey credentials. WordPress users and
+their password hashes come from the source database. Confirmation is required
+before an installed target is overwritten. The operation saves rollback SQL and files,
 uses a scratch database, and rewrites source URLs. On failure, it restores the
 original target. It does not treat copied integration settings as safe.
 
