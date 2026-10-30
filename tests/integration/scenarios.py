@@ -106,6 +106,19 @@ class Scenarios(unittest.TestCase):
           catch (RedisException $e) { echo "DENIED\\n"; }
         }'''
         self.assertEqual(wp(A, 'eval', script).stdout.decode().count('DENIED'), 3)
+        marker = B['base'] / 'conf/maintenance'
+        self.assertFalse(marker.exists())
+        marker.write_text('private health transport regression\n')
+        marker.chmod(0o644)
+        try:
+            self.assertIn('503', request(B['domain'], '/?tcp-health=1', '-H', 'X-WP-Health: 1').splitlines()[0])
+            command = ['curl', '-q', '--noproxy', '*', '-sk', '--max-time', '10', '--unix-socket',
+                '/run/wp-hosting/health.sock', '-H', 'X-WP-Health: 1', '-o', '/dev/null', '-w', '%{http_code}',
+                'https://' + B['domain'] + '/?private-health=1']
+            self.assertNotEqual(run('runuser', '-u', runtime, '--', *command, check=False).returncode, 0)
+            self.assertEqual(run(*command).stdout, '200')
+        finally:
+            marker.unlink()
 
     def test_04_http_challenge_and_rate_limit(self):
         challenge = Path('/var/lib/letsencrypt/.well-known/acme-challenge/regression')

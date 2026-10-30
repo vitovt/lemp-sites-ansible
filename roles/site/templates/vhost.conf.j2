@@ -21,6 +21,7 @@ server {
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
+    listen unix:/run/wp-hosting/health.sock ssl;
     http2 on;
     server_name {{ names | join(' ') }};
 

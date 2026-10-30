@@ -4,6 +4,22 @@
     name: "{{ nginx_packages }}"
     state: present
 
+- name: Create the private health socket directory
+  ansible.builtin.file:
+    path: /run/wp-hosting
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Keep the private health directory available after boot
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/wp-hosting-health.conf
+    content: "d /run/wp-hosting 0700 root root -\n"
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Get Cloudflare ranges (controller, fallback to static list)
   ansible.builtin.set_fact:
     nginx_cf_ranges: >-

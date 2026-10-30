@@ -11,7 +11,7 @@ real_ip_recursive on;
 # allow/deny would see the rewritten visitor IP (after realip) and block
 # everyone. The geo below tests the TCP peer ($realip_remote_addr) instead.
 # Vhosts: "if ($cf_origin_ok = 0) { return 444; }"
-geo $realip_remote_addr $cf_origin_ok {
+geo $realip_remote_addr $wp_peer_allowed {
     default {{ '0' if nginx_cloudflare_only else '1' }};
     127.0.0.1/32 1;
     ::1/128 1;
@@ -20,11 +20,17 @@ geo $realip_remote_addr $cf_origin_ok {
 {% endfor %}
 }
 
-# Only a local root operation uses this uncached health request during maintenance.
-geo $realip_remote_addr $wp_local {
+# The Unix listener is inside a root-only directory. TCP loopback is not trusted.
+map $realip_remote_addr $wp_local {
     default 0;
-    127.0.0.1/32 1;
-    ::1/128 1;
+    "unix:" 1;
+}
+# The private root transport remains available in Cloudflare/proxy-only modes.
+map "$wp_peer_allowed:$wp_local" $cf_origin_ok {
+    default 0;
+    "1:0" 1;
+    "1:1" 1;
+    "0:1" 1;
 }
 map "$wp_local:$http_x_wp_health" $wp_internal_health {
     default 0;

@@ -10,8 +10,8 @@ from jinja2 import Environment
 
 ROOT = Path(__file__).resolve().parents[2]
 policy = Environment().from_string((ROOT / 'roles/nginx/templates/cloudflare.conf.j2').read_text()).render(
-    ansible_managed='test', nginx_access_mode='direct', nginx_trusted_proxies=['127.0.0.2/32'],
-    nginx_cf_ranges=['192.0.2.0/24'], nginx_cloudflare_only=False, nginx_real_ip_header='CF-Connecting-IP')
+    ansible_managed='test', nginx_access_mode='cloudflare', nginx_trusted_proxies=['127.0.0.2/32'],
+    nginx_cf_ranges=['192.0.2.0/24'], nginx_cloudflare_only=True, nginx_real_ip_header='CF-Connecting-IP')
 
 with tempfile.TemporaryDirectory(prefix='lemp-real-ip-') as directory:
     base = Path(directory)
@@ -30,7 +30,8 @@ http {{
     {policy}
     server {{
         listen 127.0.0.1:{port};
-        return 200 "$remote_addr|$realip_remote_addr|$wp_internal_health";
+        listen unix:{base}/health.sock;
+        return 200 "$remote_addr|$realip_remote_addr|$wp_internal_health|$cf_origin_ok";
     }}
 }}
 ''')
@@ -44,9 +45,9 @@ http {{
                     break
             except OSError:
                 time.sleep(.1)
-        for source, expected in [('127.0.0.2', '198.51.100.15|127.0.0.2|0'),
-                                 ('127.0.0.3', '127.0.0.3|127.0.0.3|0'),
-                                 ('127.0.0.1', '127.0.0.1|127.0.0.1|1')]:
+        for source, expected in [('127.0.0.2', '198.51.100.15|127.0.0.2|0|1'),
+                                 ('127.0.0.3', '127.0.0.3|127.0.0.3|0|0'),
+                                 ('127.0.0.1', '127.0.0.1|127.0.0.1|0|1')]:
             connection = http.client.HTTPConnection('127.0.0.1', port, timeout=5, source_address=(source, 0))
             try:
                 connection.request('GET', '/', headers={'CF-Connecting-IP':'198.51.100.15', 'X-WP-Health':'1'})
@@ -55,7 +56,20 @@ http {{
                 assert response.read().decode() == expected, source
             finally:
                 connection.close()
+        connection = http.client.HTTPConnection('localhost', timeout=5)
+        def unix_connect():
+            connection.sock = socket.socket(socket.AF_UNIX)
+            connection.sock.settimeout(5)
+            connection.sock.connect(str(base / 'health.sock'))
+        connection.connect = unix_connect
+        try:
+            connection.request('GET', '/', headers={'X-WP-Health':'1'})
+            response = connection.getresponse()
+            assert response.status == 200
+            assert response.read().decode() == 'unix:|unix:|1|1'
+        finally:
+            connection.close()
     finally:
         process.terminate()
         process.communicate(timeout=5)
-print('PASS trusted proxy IP, untrusted header rejection, and local-only maintenance bypass')
+print('PASS trusted proxy IP, TCP header rejection, and Unix-only maintenance bypass')

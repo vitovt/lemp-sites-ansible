@@ -469,7 +469,7 @@ def update_site(s, db):
             run(['/usr/local/sbin/site-fix-perms', s['domain']])
             flush_cache(s)
             status = run(['curl', '--noproxy', '*', '-sk', '--max-time', '20', '-o', '/dev/null', '-w', '%{http_code}',
-                '--resolve', s['domain'] + ':443:127.0.0.1', '-H', 'X-WP-Health: 1',
+                '--unix-socket', '/run/wp-hosting/health.sock', '-H', 'X-WP-Health: 1',
                 'https://' + s['domain'] + '/?wp-update-health=1']).stdout
             if status != b'200':
                 raise RuntimeError('Updated site failed its uncached HTTP health check')

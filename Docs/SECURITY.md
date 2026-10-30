@@ -16,6 +16,11 @@ the same boundary as separate VMs.
 - Root tools read data files without sourcing shell code. SQL imports use restricted users.
 - Destructive operations share a lock. Cron uses a non-blocking shared lock.
 
+Maintenance health requests use /run/wp-hosting/health.sock. Its parent directory
+is root-only. A TCP loopback client cannot bypass maintenance by sending the
+health header. This prevents a compromised site's PHP from using that bypass
+against another site. The private transport also works in restricted peer modes.
+
 Shared Nginx, MariaDB, Valkey memory, and PHP masters remain shared resources.
 A site can cause CPU, memory, storage, or database pressure for other sites.
 Set pool sizes for the total host budget. Use separate containers or VMs for
