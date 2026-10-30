@@ -1,5 +1,6 @@
 # {{ ansible_managed }}
 # Minimal key-only SSH. Used only when common_ssh_provider == "minimal".
+# The handler restarts socket-activated sshd and reloads a regular listener.
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no

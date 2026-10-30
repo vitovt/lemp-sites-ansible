@@ -4,7 +4,26 @@
     name: cron
     state: restarted
 
-- name: Reload sshd
+- name: Validate the complete SSH configuration
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -t]
+  register: common_sshd_validation
+  changed_when: false
+  listen: Reload sshd
+
+- name: Check SSH socket activation
+  ansible.builtin.command:
+    argv: [systemctl, is-active, ssh.socket]
+  register: common_ssh_socket
+  changed_when: false
+  failed_when: common_ssh_socket.rc not in [0, 3, 4]
+  listen: Reload sshd
+
+- name: Apply the SSH configuration
   ansible.builtin.systemd_service:
     name: ssh
-    state: reloaded
+    state: "{{ 'restarted' if common_ssh_socket.rc == 0 else 'reloaded' }}"
+  when:
+    - common_sshd_validation.rc == 0
+    - common_ssh_socket.rc in [0, 3, 4]
+  listen: Reload sshd

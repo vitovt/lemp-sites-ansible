@@ -22,6 +22,10 @@ Set `common_ssh_admin_keys_file` for the account used by Ansible.
 Set `firewall_ssh_ports` to the SSH ports on the guest, not the NAT ports on the host.
 Keep a console session available when you change network access.
 
+The SSH handler validates the full configuration first. It restarts ssh.service
+when ssh.socket is active. A regular listener is reloaded. Reloading a socket-
+activated listener can fail to bind its inherited socket.
+
 For an LXC container, the parent host must permit nftables operations.
 If the parent host owns the firewall, set `firewall_manage: false` and apply
 matching input and SMTP output rules on that host. Do not disable both firewalls.
