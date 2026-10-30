@@ -200,8 +200,16 @@ class Scenarios(unittest.TestCase):
                 self.assertIn('credential_probe', database.tables(name))
                 with gzip.open(sql, 'wb') as stream:
                     stream.write(b'USE mysql; SELECT COUNT(*) FROM user;\n')
-                with self.assertRaises(RuntimeError):
-                    load(sql, name, name, password)
+                # A root client config must not override the restricted account.
+                ambient = Path('/root/.my.cnf')
+                self.assertFalse(ambient.exists(), 'Unexpected root client config in the isolated fixture')
+                try:
+                    ambient.write_text('[client]\nuser=root\nprotocol=socket\n')
+                    ambient.chmod(0o600)
+                    with self.assertRaises(RuntimeError):
+                        load(sql, name, name, password)
+                finally:
+                    ambient.unlink()
         database.query('CREATE TABLE `test1_example`.`wp_regression_orphan` (id int)')
         marker = wp(A, 'post', 'create', '--post_title=restore-regression', '--post_status=publish', '--porcelain').stdout.decode().strip()
         run('wp-backup', 'restore-db', A['domain'], str(dump), '--yes')

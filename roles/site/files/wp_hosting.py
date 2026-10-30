@@ -183,7 +183,7 @@ def load(path, name, user, password):
         config.write_text(f'[client]\nuser={user}\npassword={option_value(password)}\nprotocol=socket\nsocket=/run/mysqld/mysqld.sock\n')
         config.chmod(0o600)
         with gzip.open(path, 'rb') as source, tempfile.TemporaryFile() as errors:
-            process = subprocess.Popen(['mariadb', '--defaults-extra-file=' + str(config), '--binary-mode', '--local-infile=0', name],
+            process = subprocess.Popen(['mariadb', '--defaults-file=' + str(config), '--binary-mode', '--local-infile=0', name],
                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=errors)
             try:
                 shutil.copyfileobj(source, process.stdin)
