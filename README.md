@@ -19,11 +19,13 @@ Features:
 
 ## Fast Start
 
-Use Python 3.12 or later on the control machine and a Debian 13 server with SSH
-key access. Mount a separate backup volume at
-`/mnt/backups` on the server. Point the site's AAAA record to its public IPv6
-address. If you use a parent Nginx proxy for IPv4, point the A record to that
-proxy. Run these commands on the control machine:
+The commands below run on the control machine. This example calls the server
+`wp01` and the site `example.com`. Replace the example address and domain with
+your own values. Use Python 3.12 or later on the control machine. The server
+must run Debian 13, accept SSH keys, and have a separate volume mounted at
+`/mnt/backups`. Keep access to the server console during the first deployment.
+
+### 1. Prepare the control machine
 
 ```sh
 git clone git@github.com:vitovt/lemp-sites-ansible.git
@@ -35,42 +37,143 @@ export PATH="$PWD/.venv/bin:$PATH"
 cp secrets/cloudflare.ini.example secrets/cloudflare.ini
 chmod 600 secrets/cloudflare.ini
 nano secrets/cloudflare.ini
+```
+
+Set `dns_cloudflare_api_token` in `secrets/cloudflare.ini` to a Cloudflare token
+with DNS edit access to the site's zone. This file stays on the control machine.
+The default certificate method uses DNS-01; the Cloudflare proxy can be on or off.
+
+### 2. Add and install a server
+
+Open the production inventory:
+
+```sh
 nano inventories/prod/hosts.yml
+```
+
+Set the `wp01` entry to the server's reachable SSH address. This can be its
+public IPv6 address or its NAT IPv4 address. Use the external forwarded port
+for `ansible_port` if SSH is behind NAT:
+
+```yaml
+all:
+  children:
+    wp:
+      hosts:
+        wp01:
+          ansible_host: "YOUR_SERVER_IPV6"
+          ansible_user: root
+          ansible_port: 22
+```
+
+Set the network mode in `inventories/prod/group_vars/all.yml`. This example
+accepts direct IPv6 and an optional parent Nginx proxy over LAN IPv4:
+
+```sh
 nano inventories/prod/group_vars/all.yml
+```
+
+```yaml
+nginx_access_mode: direct
+nginx_public_ipv4: false
+nginx_trusted_proxies: []
+firewall_ssh_ports: [22]
+```
+
+If the parent proxy connects from LAN IPv4, replace `[]` with its source address,
+for example `[192.168.77.1/32]`. Set `firewall_ssh_ports` to the SSH port on the
+server itself; this can differ from the NAT port in `ansible_port`. Configure the
+parent proxy as shown in [Deployment](Docs/DEPLOYMENT.md).
+
+For a new server, replace the sample `jenet.info` entry in
+`inventories/prod/host_vars/wp01/sites.yml` with an empty site list:
+
+```sh
 nano inventories/prod/host_vars/wp01/sites.yml
 ```
 
-Set `dns_cloudflare_api_token` in `secrets/cloudflare.ini` to a token with DNS
-edit access to your zone. In `hosts.yml`, set `ansible_host` to the reachable
-server address and set `ansible_port` if SSH uses a nonstandard port. In
-`group_vars/all.yml`, set `nginx_access_mode: direct` for public IPv6. Keep
-`nginx_public_ipv4: false`. If you use a parent proxy, set
-`nginx_trusted_proxies: [<proxy-LAN-IPv4>/32]` to its actual source address.
-In `sites.yml`, replace the sample site with `wp_sites: {}`. Use the guest SSH
-port in `firewall_ssh_ports` if it differs from 22.
+```yaml
+wp_sites: {}
+```
 
-Replace `example.com` below with a domain in your Cloudflare zone. DNS-01 is
-the default certificate method. The `add` command installs WordPress and
-prompts for confirmation.
+Keep the existing entry if this server already hosts that site. Check the
+configuration, then install the server services:
 
 ```sh
-ansible-playbook playbooks/doctor.yml --limit wp01
-ansible-playbook playbooks/site.yml --limit wp01
+ansible-playbook -i inventories/prod/hosts.yml playbooks/doctor.yml --limit wp01
+ansible-playbook -i inventories/prod/hosts.yml playbooks/site.yml --limit wp01
+```
+
+To add another server, copy the `wp01` block under `hosts`, rename it `wp02`,
+and set its own SSH address and port. Create its site list and install it:
+
+```sh
+nano inventories/prod/hosts.yml
+mkdir -p inventories/prod/host_vars/wp02
+printf 'wp_sites: {}\n' > inventories/prod/host_vars/wp02/sites.yml
+ansible-playbook -i inventories/prod/hosts.yml playbooks/doctor.yml --limit wp02
+ansible-playbook -i inventories/prod/hosts.yml playbooks/site.yml --limit wp02
+```
+
+The new server inherits `group_vars/all.yml`. If its network settings differ,
+put its overrides in `inventories/prod/host_vars/wp02/network.yml`.
+
+### 3. Create and check a site
+
+Point the site's AAAA record to the server's public IPv6 address. If you use a
+parent IPv4 proxy, point the A record to that proxy. Replace `example.com` below
+with a real domain in the token's Cloudflare zone. The command creates the site,
+installs WordPress, and asks for confirmation:
+
+```sh
 scripts/site add wp01 example.com example 8.3 --install-wp
-ansible-playbook playbooks/verify.yml --limit wp01 -e wp_site_only=example.com
 scripts/site info wp01 example.com
-ansible-playbook playbooks/site-backup.yml --limit wp01 -e wp_site_only=example.com
+cat secrets/wp01/wp-admin/example.com.pass
+ansible-playbook -i inventories/prod/hosts.yml playbooks/verify.yml --limit wp01 -e wp_site_only=example.com
 ```
 
-To change a site, edit its entry in `sites.yml`. For example, add
-`aliases: [www.example.com]` after you create the DNS record. Apply the change
-and check the site. To remove a site, use the last command; it makes a backup
-and an archive before deletion, and asks you to confirm the domain.
+The WordPress administrator is `wpadmin` by default. Its generated password is
+in `secrets/wp01/wp-admin/example.com.pass` on the control machine. Sign in at
+`https://example.com/wp-admin/` to edit pages and posts. WordPress cannot install
+or edit plugins and themes through the web interface. For checked core, plugin,
+and theme updates, run `wp-backup update example.com --yes` as root on the server.
+See [Operations](Docs/OPERATIONS.md) for the update and rollback rules.
+
+### 4. Change site parameters
+
+Edit the site's entry in `inventories/prod/host_vars/wp01/sites.yml`. The `add`
+command already created this entry. For example, add an alias and change the
+PHP-FPM process limit after you create the alias DNS record:
+
+```yaml
+wp_sites:
+  example.com:
+    user: example
+    db_name: example
+    php_version: "8.3"
+    wp_install: true
+    aliases: [www.example.com]
+    pm_max_children: 6
+```
+
+Keep the existing values that you do not intend to change. Apply and check the
+site. Changing its domain, Linux user, or database name needs a migration; do
+not rename those values in this file.
 
 ```sh
 nano inventories/prod/host_vars/wp01/sites.yml
-ansible-playbook playbooks/site.yml --limit wp01 -e wp_site_only=example.com
-ansible-playbook playbooks/verify.yml --limit wp01 -e wp_site_only=example.com
+ansible-playbook -i inventories/prod/hosts.yml playbooks/site.yml --limit wp01 -e wp_site_only=example.com
+ansible-playbook -i inventories/prod/hosts.yml playbooks/verify.yml --limit wp01 -e wp_site_only=example.com
+```
+
+### 5. Back up or remove a site
+
+Run a backup when needed. The remove command asks you to type the domain. It
+creates a backup and a private archive before it deletes the site and its
+inventory entry:
+
+```sh
+ansible-playbook -i inventories/prod/hosts.yml playbooks/site-backup.yml --limit wp01 -e wp_site_only=example.com
 scripts/site remove wp01 example.com
 ```
 
