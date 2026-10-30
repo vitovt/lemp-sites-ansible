@@ -26,7 +26,7 @@ p.add_argument('--key', type=Path, required=True)
 p.add_argument('--disposable', action='store_true', required=True)
 p.add_argument('--reset', action='store_true')
 p.add_argument('--work', type=Path)
-p.add_argument('--phase', choices=['deploy', 'all'], default='all')
+p.add_argument('--phase', choices=['deploy', 'all', 'lifecycle'], default='all')
 a = p.parse_args()
 work = a.work.resolve() if a.work else Path(tempfile.mkdtemp(prefix='lemp-integration-'))
 if not re.fullmatch(r'/tmp/lemp-integration-[a-zA-Z0-9_-]+', str(work)):
@@ -110,19 +110,21 @@ def play(name, log, *args, expect_failure=False):
             raise SystemExit(f'Unexpected status {rc}: {name}; see {work / log}')
 
 print(f'Isolated results and generated secrets: {work}', flush=True)
-play('site', 'deploy.log')
-play('site', 'idempotence.log')
-if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'idempotence.log').read_text()):
-    raise SystemExit('FAIL second convergence changed the target')
-play('doctor', 'doctor.log')
-if a.phase == 'all':
+if a.phase != 'lifecycle':
+    play('site', 'deploy.log')
+    play('site', 'idempotence.log')
+    if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'idempotence.log').read_text()):
+        raise SystemExit('FAIL second convergence changed the target')
+    play('doctor', 'doctor.log')
+if a.phase in ['all', 'lifecycle']:
     archive = work / 'probes.tar'
     with tarfile.open(archive, 'w') as tar:
         for name in ['roles', 'tests', 'library']:
             tar.add(project / name, arcname=name, filter=lambda item: None if '__pycache__' in item.name else item)
     remote('mkdir -p /tmp/wp-hosting-probes && tar -xf - -C /tmp/wp-hosting-probes', archive.read_bytes())
-    remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/scenarios.py ' + token))
-    play('verify', 'verify.log')
+    if a.phase == 'all':
+        remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/scenarios.py ' + token))
+        play('verify', 'verify.log')
     # Prove that lost controller secrets cannot rotate live credentials.
     for relative in ['wptest/db/test1.example.pass', 'wptest/restic.pass']:
         original = work / 'secrets' / relative
@@ -153,9 +155,11 @@ if a.phase == 'all':
                  {'ansible.builtin.fail':{'msg':'intentional interruption after core download'}}]}]
     (project / 'playbooks/interrupted-install.yml').write_text(yaml.safe_dump(partial, sort_keys=False))
     play('interrupted-install', 'interrupted-install.log', expect_failure=True)
+    remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/install-state.py ' + token + ' closed'))
     extra_sites['test3.example']['wp_install'] = True
     overrides.write_text(json.dumps({'wp_sites':extra_sites}))
     play('site', 'resume-install.log', '-e', '@' + str(overrides), '-e', 'wp_site_only=test3.example')
+    remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/install-state.py ' + token + ' open'))
     play('site-repair-core', 'repair-report.log', '-e', 'repair_site=test3.example')
     play('site-remove', 'remove.log', '-e', 'wp_site_only=test3.example', '-e', 'confirm=test3.example')
     play('verify', 'final-verify.log')

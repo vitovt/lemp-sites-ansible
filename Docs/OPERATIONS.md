@@ -56,6 +56,11 @@ The installer checks each stage. A failed download, DB setup, or theme install
 can be retried. Existing code needs a reviewed Git baseline. Never accept code
 changes only to clear a security alert.
 
+An incomplete installation stays behind a maintenance gate before code download.
+HTTP returns 503 and cron is blocked until installation and baseline checks finish.
+An error keeps the gate closed for the next attempt. The installer does not take
+over a maintenance gate owned by clone, restore, or another operation.
+
 ```sh
 site-fix-perms example.com --check
 site-fix-perms example.com

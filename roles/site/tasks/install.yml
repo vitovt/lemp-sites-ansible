@@ -12,6 +12,11 @@
     path: "{{ site_cfg.path }}/conf/install-in-progress"
   register: site_install_intent
 
+- name: Check the completed installation marker
+  ansible.builtin.stat:
+    path: "{{ site_cfg.path }}/conf/wordpress-installed"
+  register: site_install_complete
+
 - name: Record a fresh installation before download
   ansible.builtin.copy:
     content: "fresh installation\n"
@@ -20,6 +25,12 @@
     group: root
     mode: "0600"
   when: not site_core_stat.stat.exists
+
+- name: Block HTTP and cron during a fresh or interrupted installation
+  hosting_install_gate:
+    path: "{{ site_cfg.path }}/conf/maintenance"
+    state: present
+  when: not site_core_stat.stat.exists or site_install_intent.stat.exists or not site_install_complete.stat.exists
 
 - name: Install WordPress ({{ site_cfg.domain }})
   vars:
@@ -137,6 +148,12 @@
         argv: [/usr/local/sbin/site-fix-perms, "{{ site_cfg.domain }}"]
       when: site_initial_baseline is changed  # noqa: no-handler (per-site state)
       changed_when: true
+
+    - name: Publish the completed fresh installation
+      hosting_install_gate:
+        path: "{{ site_cfg.path }}/conf/maintenance"
+        state: absent
+      when: not site_core_stat.stat.exists or site_install_intent.stat.exists or not site_install_complete.stat.exists
 
     - name: Clear the completed installation intent
       ansible.builtin.file:

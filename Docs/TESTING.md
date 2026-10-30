@@ -66,10 +66,15 @@ If collections are installed next to the active virtual environment under
 work directory. Install collections as shown in Deployment first. Do not pass production application configuration to tests.
 
 `--phase deploy` runs deployment, repeat convergence, and doctor only.
+`--phase lifecycle` repeats the lifecycle checks on an existing marked fixture.
+It does not repeat deployment or the 10 service/application scenarios. Use the
+same work directory, identity, and explicit target as the earlier run.
 The full phase adds HTTP, IPv6 loopback and an unrouted network namespace, cache, permissions, Unix socket and Valkey
 isolation, SMTP rejection, integrity alerts, exact-schema restore, hostile SQL,
 clone confirmation, clone rollback, staging, and final health checks. It also tests lost secrets, a resumed installation,
 site addition, a repair report, and archived removal.
+The interrupted-install test requests wp-admin/install.php while the database is
+not installed. It requires HTTP 503, then HTTP 200 after a successful resume.
 The legacy `tests/verify.sh` requires the same disposable marker token.
 
 Repeat convergence must report `changed=0`, `unreachable=0`, and `failed=0`.
