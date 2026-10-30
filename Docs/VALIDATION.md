@@ -165,3 +165,21 @@ clone scenario, the second site contains the first site's WordPress users.
 
 These checks need infrastructure or service credentials that are not included in
 the isolated test run. Production inventory and production secrets are not test fixtures.
+
+## Per-site Cloudflare tokens on 2026-10-30
+
+Controller tests cover the default token, named token selection, host filtering,
+unsafe reference rejection, missing or group-readable credential files, Certbot
+arguments, saved renewal paths, and reconfiguration only when the saved path
+differs. The reconfiguration test uses a local fake Certbot command.
+All 45 controller tests and seven playbook syntax checks passed. Targeted
+Ansible lint passed on the changed role tasks. The workstation's unpinned
+system linter still reports 12 existing whole-repository findings in role
+metadata and the GitHub workflow. The pinned linter was not installed for this
+run. No production tokens or inventory were used.
+
+The disposable integration fixture disables Certbot. It did not issue a public
+certificate or test renewal against Cloudflare. Before production use, issue a
+certificate for each account with scoped test-zone tokens, change one existing
+site from the default to a named token, and run `certbot renew --dry-run` on the
+disposable host. Check the saved credential path for every certificate.

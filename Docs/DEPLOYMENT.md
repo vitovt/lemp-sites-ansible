@@ -117,6 +117,45 @@ Put a zone-scoped Cloudflare DNS edit token in `secrets/cloudflare.ini`.
 The role copies it to the target with mode 0600. DNS-01 also works when the DNS
 record is not proxied. No inbound HTTP request is needed for this challenge.
 
+The default token serves every site without an override. To use another
+Cloudflare account for a site, put a second token in a named file on the
+control machine:
+
+```sh
+mkdir -m 700 -p secrets/cloudflare
+cp secrets/cloudflare.ini.example secrets/cloudflare/customer_b.ini
+chmod 600 secrets/cloudflare/customer_b.ini
+```
+
+Set `dns_cloudflare_api_token` in that file. Then add the file name without
+`.ini` to the site entry:
+
+```yaml
+wp_sites:
+  second.example:
+    user: second
+    php_version: "8.3"
+    cloudflare_token_ref: customer_b
+```
+
+For a new WordPress site, the site CLI can set this reference before its first
+certificate request:
+
+```sh
+scripts/site add wp01 second.example second 8.3 --install-wp --cloudflare-token-ref customer_b
+```
+
+Use a simple reference name: lowercase letters, digits, `_`, and `-`; start
+with a letter. Do not put API tokens in the inventory. The role keeps the
+default credentials at `/etc/letsencrypt/cloudflare.ini` and installs named
+credentials under `/etc/letsencrypt/cloudflare-credentials/` with root-only
+access. It checks that each required source file exists before deployment.
+Certbot records one credential path per certificate. When a site's reference
+changes, the role tests and updates that certificate's renewal settings.
+Test renewal with `certbot renew --dry-run` after a token change. A certificate
+for a primary name and its aliases uses one token; that token must have DNS
+edit access to every zone in the certificate.
+
 For the explicit HTTP-01 exception:
 
 ```yaml

@@ -10,6 +10,8 @@ certbot_cloudflare_packages:
 # Scoped API token (Zone:DNS:Edit). A missing token stops DNS issuance.
 certbot_cloudflare_credentials_src: "{{ secrets_dir }}/cloudflare.ini"
 certbot_cloudflare_credentials: /etc/letsencrypt/cloudflare.ini
+# Named site tokens use secrets/cloudflare/<name>.ini on the controller.
+certbot_cloudflare_credentials_dir: /etc/letsencrypt/cloudflare-credentials
 certbot_cloudflare_propagation_seconds: 30
 # Empty = register without an email address.
 certbot_cloudflare_email: ""

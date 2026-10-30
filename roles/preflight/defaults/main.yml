@@ -18,6 +18,7 @@ preflight_site_keys:
   - db_name
   - php_version
   - aliases
+  - cloudflare_token_ref
   - cache
   - redis
   - xmlrpc

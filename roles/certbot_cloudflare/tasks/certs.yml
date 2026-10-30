@@ -4,6 +4,22 @@
     name: "{{ certbot_cloudflare_packages }}"
     state: present
 
+- name: Select certificates and their credentials
+  ansible.builtin.set_fact:
+    certbot_cloudflare_certs: >-
+      {%- set out = [] -%}
+      {%- for domain, raw in (wp_sites | default({})).items() -%}
+      {%-   set cfg = raw | default({}, true) -%}
+      {%-   set ref = cfg.cloudflare_token_ref | default('') -%}
+      {%-   if not (wp_site_only | default('')) or wp_site_only == domain -%}
+      {%-     set _ = out.append({'domain': domain, 'names': [domain] + (cfg.aliases | default([])),
+                       'token_ref': ref,
+                       'credentials': certbot_cloudflare_credentials if not ref else
+                         certbot_cloudflare_credentials_dir ~ '/' ~ ref ~ '.ini'}) -%}
+      {%-   endif -%}
+      {%- endfor -%}
+      {{ out }}
+
 - name: Install DNS credentials
   ansible.builtin.copy:
     src: "{{ certbot_cloudflare_credentials_src }}"
@@ -12,6 +28,30 @@
     group: root
     mode: "0600"
   when: certbot_cloudflare_method == 'dns-cloudflare'
+  no_log: true
+
+- name: Create the site credential directory
+  ansible.builtin.file:
+    path: "{{ certbot_cloudflare_credentials_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: certbot_cloudflare_method == 'dns-cloudflare'
+
+- name: Install selected site DNS credentials
+  ansible.builtin.copy:
+    src: "{{ secrets_dir }}/cloudflare/{{ item.token_ref }}.ini"
+    dest: "{{ item.credentials }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ certbot_cloudflare_certs }}"
+  loop_control:
+    label: "{{ item.domain }}"
+  when:
+    - certbot_cloudflare_method == 'dns-cloudflare'
+    - item.token_ref | length > 0
   no_log: true
 
 - name: Create ACME directories
@@ -32,17 +72,6 @@
     owner: root
     group: root
     mode: "0755"
-
-- name: Select certificates
-  ansible.builtin.set_fact:
-    certbot_cloudflare_certs: >-
-      {%- set out = [] -%}
-      {%- for domain, cfg in (wp_sites | default({})).items() -%}
-      {%- if not (wp_site_only | default('')) or wp_site_only == domain -%}
-      {%- set _ = out.append({'domain': domain, 'names': [domain] + ((cfg | default({}, true)).aliases | default([]))}) -%}
-      {%- endif -%}
-      {%- endfor -%}
-      {{ out }}
 
 - name: Find existing vhosts
   ansible.builtin.stat:
@@ -93,7 +122,7 @@
   ansible.builtin.command:
     argv: >-
       {{ ['certbot', 'certonly', '--non-interactive', '--agree-tos', '--cert-name', item.item.domain]
-         + (['--dns-cloudflare', '--dns-cloudflare-credentials', certbot_cloudflare_credentials,
+         + (['--dns-cloudflare', '--dns-cloudflare-credentials', item.item.credentials,
              '--dns-cloudflare-propagation-seconds', certbot_cloudflare_propagation_seconds | string]
             if certbot_cloudflare_method == 'dns-cloudflare' else ['--webroot', '-w', certbot_cloudflare_webroot])
          + (['--email', certbot_cloudflare_email] if certbot_cloudflare_email else ['--register-unsafely-without-email'])
@@ -101,6 +130,60 @@
   loop: "{{ certbot_cloudflare_existing.results }}"
   when: item.stdout_lines | default([]) | sort != item.item.names | unique | sort
   changed_when: true
+
+- name: Read the saved DNS credential path
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - >-
+        import configparser,sys;
+        config=configparser.ConfigParser(interpolation=None);
+        config.read(sys.argv[1]);
+        print(config.get('renewalparams','dns_cloudflare_credentials',fallback=''))
+      - "/etc/letsencrypt/renewal/{{ item.domain }}.conf"
+  loop: "{{ certbot_cloudflare_certs }}"
+  loop_control:
+    label: "{{ item.domain }}"
+  register: certbot_cloudflare_saved_credentials
+  changed_when: false
+  when: certbot_cloudflare_method == 'dns-cloudflare'
+
+- name: Move existing certificates to their selected DNS credentials
+  ansible.builtin.command:
+    argv:
+      - certbot
+      - reconfigure
+      - --non-interactive
+      - --cert-name
+      - "{{ item.item.domain }}"
+      - --dns-cloudflare
+      - --dns-cloudflare-credentials
+      - "{{ item.item.credentials }}"
+  loop: "{{ certbot_cloudflare_saved_credentials.results | default([]) | rejectattr('skipped', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.item.domain }}"
+  when: item.stdout | trim != item.item.credentials
+  changed_when: true
+
+- name: Confirm the saved DNS credential path
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - >-
+        import configparser,sys;
+        config=configparser.ConfigParser(interpolation=None);
+        config.read(sys.argv[1]);
+        print(config.get('renewalparams','dns_cloudflare_credentials',fallback=''))
+      - "/etc/letsencrypt/renewal/{{ item.domain }}.conf"
+  loop: "{{ certbot_cloudflare_certs }}"
+  loop_control:
+    label: "{{ item.domain }}"
+  register: certbot_cloudflare_confirmed_credentials
+  changed_when: false
+  failed_when: certbot_cloudflare_confirmed_credentials.stdout | trim != item.credentials
+  when: certbot_cloudflare_method == 'dns-cloudflare'
 
 - name: Remove temporary challenge servers
   ansible.builtin.file:

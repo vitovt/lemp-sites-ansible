@@ -6,6 +6,7 @@ except this README and `*.example` files. Keep files at mode 0600.
 | File | Who creates it | Used by |
 |---|---|---|
 | `cloudflare.ini` | You, from `cloudflare.ini.example` | certbot_cloudflare (DNS-01) |
+| `cloudflare/<name>.ini` | You, from `cloudflare.ini.example` | Sites with `cloudflare_token_ref: <name>` |
 | `telegram.env` | You, from `telegram.env.example` (optional) | telegram_alert (tg-alert) |
 | `<host>/db/<domain>.pass` | Ansible (`password` lookup) | site |
 | `<host>/valkey/<domain>.pass` | Ansible (`password` lookup) | valkey, site |

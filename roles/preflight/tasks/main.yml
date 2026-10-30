@@ -37,6 +37,11 @@
       {%-       if (cfg.php_version | default(php_default_version) | string) not in (php_supported_versions | default(['8.3', '8.4', '8.5'])) -%}
         {%- set _ = e.append(domain ~ ': unsupported PHP version') -%}
       {%- endif -%}
+      {%-       if 'cloudflare_token_ref' in cfg and
+                   (cfg.cloudflare_token_ref is not string or
+                    cfg.cloudflare_token_ref is not match('^[a-z][a-z0-9_-]{0,63}$')) -%}
+        {%- set _ = e.append(domain ~ ': cloudflare_token_ref must be a simple name') -%}
+      {%-       endif -%}
       {%-       for k in ['pm_max_children', 'pm_max_requests', 'monitor_content_max'] -%}
       {%-         if k in cfg and (cfg[k] is not integer or cfg[k] < 0 or (k == 'pm_max_children' and cfg[k] == 0)) -%}
           {%- set _ = e.append(domain ~ ': invalid ' ~ k) -%}

@@ -8,6 +8,7 @@ The CLI needs the host_vars layout described in Deployment.
 ```sh
 scripts/site add wp01 example.com example 8.4 --dry-run
 scripts/site add wp01 example.com example 8.4 --install-wp
+scripts/site add wp01 second.example second 8.4 --install-wp --cloudflare-token-ref customer_b
 scripts/site info wp01 example.com
 scripts/site clone wp01 example.com staging.example.com
 scripts/site remove wp01 staging.example.com

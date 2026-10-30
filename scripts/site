@@ -65,7 +65,14 @@ def main():
     parser.add_argument('--install-wp', action='store_true')
     parser.add_argument('--yes', action='store_true')
     parser.add_argument('--activate', action='store_true')
+    parser.add_argument('--cloudflare-token-ref', metavar='NAME',
+                        help='Name of secrets/cloudflare/NAME.ini for a new site')
     args = parser.parse_args()
+    if args.cloudflare_token_ref is not None:
+        if args.command not in ('add', 'clone'):
+            parser.error('--cloudflare-token-ref is only for add and clone')
+        if not re.fullmatch('[a-z][a-z0-9_-]{0,63}', args.cloudflare_token_ref):
+            parser.error('Invalid Cloudflare token reference')
     if not re.fullmatch('[a-zA-Z0-9_][a-zA-Z0-9_-]*', args.host):
         parser.error('Invalid inventory host')
     inventory = Path(os.environ.get('SITE_INVENTORY', 'inventories/prod'))
@@ -111,12 +118,16 @@ def main():
             validate(target, user, php, sites)
             sites[target] = dict(user=user, db_name=user, php_version=php, wp_install=args.install_wp if args.command == 'add' else False,
                                  staging=args.command == 'clone' and not args.activate)
+            if args.cloudflare_token_ref:
+                sites[target]['cloudflare_token_ref'] = args.cloudflare_token_ref
             print(yaml.safe_dump({target: sites[target]}, sort_keys=False), end='')
             if not args.dry_run:
                 write(path, data)
                 play('site', '-e', f'wp_site_only={target}')
         elif args.command == 'add':
             parser.error('Site already exists')
+        elif args.cloudflare_token_ref and (sites[target] or {}).get('cloudflare_token_ref') != args.cloudflare_token_ref:
+            parser.error('Existing clone target has a different Cloudflare token reference; edit its inventory entry first')
         if args.command == 'clone' and not args.dry_run:
             extra = ['-e', f'clone_from={args.domain}', '-e', f'clone_to={target}']
             extra += ['-e', f'confirm={target}']

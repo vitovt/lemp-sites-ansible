@@ -42,6 +42,8 @@ nano secrets/cloudflare.ini
 Set `dns_cloudflare_api_token` in `secrets/cloudflare.ini` to a Cloudflare token
 with DNS edit access to the site's zone. This file stays on the control machine.
 The default certificate method uses DNS-01; the Cloudflare proxy can be on or off.
+For a site in another Cloudflare account, add a named token and set
+`cloudflare_token_ref` for that site as shown in [Deployment](Docs/DEPLOYMENT.md).
 
 ### 2. Add and install a server
 
