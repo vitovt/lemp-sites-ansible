@@ -19,6 +19,9 @@ Features:
 
 ## Fast Start
 
+For a server example that is ready to copy and has two documented sites, see
+[Example inventory](Docs/EXAMPLES.md).
+
 The commands below run on the control machine. This example calls the server
 `wp01` and the site `example.com`. Replace the example address and domain with
 your own values. Use Python 3.12 or later on the control machine. The server
@@ -106,19 +109,21 @@ ansible-playbook -i inventories/prod/hosts.yml playbooks/doctor.yml --limit wp01
 ansible-playbook -i inventories/prod/hosts.yml playbooks/site.yml --limit wp01
 ```
 
-To add another server, copy the `wp01` block under `hosts`, rename it `wp02`,
-and set its own SSH address and port. Create its site list and install it:
+To add another server, copy the example server and edit its settings and sites:
 
 ```sh
+cp -a inventories/examples/example-server inventories/prod/host_vars/wp02
 nano inventories/prod/hosts.yml
-mkdir -p inventories/prod/host_vars/wp02
-printf 'wp_sites: {}\n' > inventories/prod/host_vars/wp02/sites.yml
+nano inventories/prod/host_vars/wp02/settings.yml
+nano inventories/prod/host_vars/wp02/sites.yml
 ansible-playbook -i inventories/prod/hosts.yml playbooks/doctor.yml --limit wp02
 ansible-playbook -i inventories/prod/hosts.yml playbooks/site.yml --limit wp02
 ```
 
-The new server inherits `group_vars/all.yml`. If its network settings differ,
-put its overrides in `inventories/prod/host_vars/wp02/network.yml`.
+Add `wp02: {}` under `hosts` in `hosts.yml`. Set its SSH address in
+`settings.yml`, replace both example domains, and configure the two Cloudflare
+tokens before deployment. See
+[Example inventory](Docs/EXAMPLES.md) for the exact fields and copy steps.
 
 ### 3. Create and check a site
 

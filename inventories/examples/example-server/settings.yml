@@ -1,0 +1,85 @@
+---
+# Copy this file to inventories/prod/host_vars/<host>/settings.yml.
+# These values apply only to that server. See Docs/EXAMPLES.md.
+
+# Set the SSH address reachable from the control machine. Use public IPv6,
+# LAN IPv4, or a NAT IPv4 address. Replace the placeholder before deployment.
+ansible_host: "YOUR_REACHABLE_SSH_ADDRESS"
+ansible_user: root
+# Use the forwarded external port if SSH is behind NAT.
+ansible_port: 22
+# If SSH needs a jump host, uncomment and set its real address.
+# ansible_ssh_common_args: "-o ProxyJump=root@jump-host"
+
+# Time zone for logs and scheduled tasks. Use a valid IANA time zone.
+common_timezone: Europe/Berlin
+
+# Ansible uses a root SSH key by default. Set this to the key file on the guest.
+common_ssh_admin_keys_file: /root/.ssh/authorized_keys
+
+# These are ports on the guest. The NAT port in ansible_port can differ.
+firewall_ssh_ports: [22]
+# Set false only if the parent host enforces equivalent IP and SMTP rules.
+firewall_manage: true
+# SMTP is blocked by default. Keep false until mail transport is configured.
+firewall_smtp_enabled: false
+
+# direct: public IPv6 plus the trusted LAN proxies below.
+# cloudflare: Cloudflare edge addresses plus trusted LAN proxies only.
+# proxy: trusted LAN proxies only. This mode needs at least one proxy address.
+nginx_access_mode: direct
+# In direct mode, false blocks public IPv4 web traffic to the guest.
+nginx_public_ipv4: false
+# Add only the source address of the parent Nginx proxy, for example:
+# nginx_trusted_proxies: [192.0.2.1/32]
+nginx_trusted_proxies: []
+# If you raise a site's upload_max_filesize, raise this limit too.
+# nginx_client_max_body_size: 128m
+# Optional rate limit for wp-login.php and XML-RPC.
+# nginx_login_rate: 6r/m
+# nginx_login_burst: 5
+
+# This branch is installed even before a site uses it. Site PHP versions are
+# also installed as needed. Supported site branches: 8.3, 8.4, and 8.5.
+php_versions: ["8.3"]
+php_default_version: "8.3"
+
+# Optional capacity settings. Tune them after a load test.
+# mariadb_buffer_pool_size: "2G"  # Empty default uses 40% of host RAM.
+# mariadb_max_connections: 100
+# valkey_maxmemory: 256mb
+# valkey_maxmemory_policy: allkeys-lru
+
+# dns-cloudflare uses the default token or a site's cloudflare_token_ref.
+# webroot uses HTTP-01; port 80 must reach this server or its parent proxy.
+certbot_cloudflare_method: dns-cloudflare
+# Set a real operations email to receive CA notices. Empty omits the email.
+certbot_cloudflare_email: ""
+# Production must have a valid public certificate.
+certbot_cloudflare_require_valid: true
+# Raise this only if the DNS TXT record needs more time to become visible.
+# certbot_cloudflare_propagation_seconds: 30
+
+# Mount a separate backup volume here before deployment.
+backup_restic_mount: /mnt/backups
+backup_restic_repo: /mnt/backups/restic
+backup_restic_require_mount: true
+# Optional retention and run time settings.
+# backup_restic_keep_daily: 7
+# backup_restic_keep_weekly: 4
+# backup_restic_keep_monthly: 6
+# backup_restic_on_calendar: "*-*-* 03:15:00"
+# Keep remote copies. Configure the remote repo and its password first.
+# backup_restic_copy_repo: "sftp:backup-host:/repository"
+# backup_restic_copy_password_file: /etc/restic/remote-password
+
+# WordPress cron runs under each site's PHP runtime user.
+site_cron_minute: "*/5"
+# Optional monitoring thresholds and schedule.
+# wp_monitor_disk_min_free_pct: 10
+# wp_monitor_cert_min_days: 14
+# wp_monitor_on_calendar: "*-*-* 04:30:00"
+# true runs checked weekly WordPress updates from a root-owned systemd timer.
+# false requires an operator to start the checked update from the server.
+maintenance_auto_update: true
+# maintenance_on_calendar: "Sun *-*-* 05:00:00"

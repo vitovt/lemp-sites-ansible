@@ -32,6 +32,8 @@ matching input and SMTP output rules on that host. Do not disable both firewalls
 LXC validation is still a separate release check.
 
 Set the real address in `inventories/prod/hosts.yml`.
+For a server example that is ready to copy and has two site entries, see
+[Example inventory](EXAMPLES.md).
 Declare sites in `inventories/prod/host_vars/<host>/sites.yml`:
 
 ```yaml

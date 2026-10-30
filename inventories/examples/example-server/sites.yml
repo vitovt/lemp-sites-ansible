@@ -1,0 +1,85 @@
+---
+# Copy this file to inventories/prod/host_vars/<host>/sites.yml.
+# Replace both example domains and all related DNS names before deployment.
+# Each key under wp_sites is one primary domain. Keep every site in this file.
+# The two examples show the default Cloudflare token and a named site token.
+wp_sites:
+  example-site1.example.com:
+    # Linux code owner. PHP runs as a separate "site1-php" user.
+    # Use lowercase letters, digits, and underscores; maximum 28 characters.
+    user: site1
+    # Local database and DB account. Do not rename after installation.
+    db_name: site1
+    # Supported PHP branches: "8.3", "8.4", "8.5". Test a branch change first.
+    php_version: "8.3"
+    # Extra DNS names on the same certificate. Create their DNS records first.
+    aliases: [www.example-site1.example.com]
+    # This site uses the default token in secrets/cloudflare.ini.
+    # For another account, set cloudflare_token_ref: customer_a and create
+    # secrets/cloudflare/customer_a.ini with mode 0600.
+
+    # true installs WordPress. Use false for an existing migrated site.
+    wp_install: true
+    # Use latest or a tested WordPress version for a fresh installation.
+    wp_version: latest
+    # WordPress locale, for example en_US or de_DE.
+    wp_locale: en_US
+    # Initial administrator. The password is stored on the control machine.
+    wp_admin_user: wpadmin
+    # Empty uses admin@<primary-domain>. Set a real mailbox when available.
+    wp_admin_email: ""
+    # Empty uses the primary domain as the site title.
+    wp_title: ""
+    # This prefix is used only when Ansible creates wp-config.php.
+    table_prefix: wp_
+
+    # true enables the public page cache. Dynamic plugins can need exclusions.
+    cache: true
+    # true enables a per-site Valkey account; the plugin setup is separate.
+    redis: true
+    # Keep XML-RPC off unless the application needs it.
+    xmlrpc: false
+    # true adds an HTTP noindex header. Clone adds a separate maintenance gate.
+    staging: false
+
+    # On-demand PHP-FPM pool size. Plan the sum across all sites for host RAM.
+    pm_max_children: 4
+    # Idle worker timeout and recycle limit.
+    pm_idle_timeout: 30s
+    pm_max_requests: 500
+    # PHP limits. A larger upload limit also needs nginx_client_max_body_size.
+    memory_limit: 256M
+    upload_max_filesize: 64M
+    # Alert when more than this many posts appear in 24 hours; 0 disables it.
+    monitor_content_max: 10
+
+  example-site2.example.com:
+    # This site uses a second Cloudflare account. Create the named token file.
+    # Both its primary name and aliases must be in zones allowed by that token.
+    cloudflare_token_ref: customer_b
+    # Code owner and database name must be unique on this server.
+    user: site2
+    db_name: site2
+    php_version: "8.4" # Another supported branch; installed as needed.
+    aliases: [www.example-site2.example.com]
+
+    # Change to false only when you import an existing WordPress site.
+    wp_install: true
+    wp_version: latest
+    wp_locale: en_US
+    wp_admin_user: wpadmin
+    wp_admin_email: ""
+    wp_title: ""
+    table_prefix: wp_
+
+    # See the field notes on example-site1 for the effect of these options.
+    cache: true
+    redis: true
+    xmlrpc: false
+    staging: false
+    pm_max_children: 4
+    pm_idle_timeout: 30s
+    pm_max_requests: 500
+    memory_limit: 256M
+    upload_max_filesize: 64M
+    monitor_content_max: 10
