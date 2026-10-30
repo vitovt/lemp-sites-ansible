@@ -52,3 +52,5 @@ class RunnerTests(unittest.TestCase):
                 self.assertIn('/etc/ssl/private/ssl-cert-snakeoil.key', settings['backup_restic_paths'])
                 self.assertEqual('sudo -n sh -c' in log.read_text(), sudo)
                 self.assertIn('IdentityAgent=none', log.read_text())
+                self.assertIn('ServerAliveInterval=15', log.read_text())
+                self.assertEqual(settings['ansible_ssh_retries'], 2)

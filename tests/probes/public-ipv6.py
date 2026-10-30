@@ -23,6 +23,7 @@ assert s['hosting_test_mode'] is True and s['hosting_test_id'] == token
 assert s['secrets_dir'] == str(work / 'secrets')
 ssh = ['ssh', '-i', s['ansible_ssh_private_key_file'], '-p', str(s['ansible_port']),
        '-F', '/dev/null', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none',
+       '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3',
        '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
        '-o', f'UserKnownHostsFile={work}/known_hosts', f'{s["ansible_user"]}@{s["ansible_host"]}']
 env = {'PATH': os.environ['PATH'], 'LANG':'C.UTF-8'}

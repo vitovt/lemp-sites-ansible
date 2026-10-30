@@ -38,6 +38,7 @@ if not token_path.exists():
     token_path.write_text(uuid.uuid4().hex)
 token = token_path.read_text().strip()
 ssh = ['ssh', '-i', str(key), '-p', str(a.port), '-F', '/dev/null', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'BatchMode=yes',
+       '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3',
        '-o', f'UserKnownHostsFile={work}/known_hosts', '-o', 'StrictHostKeyChecking=accept-new', f'{a.user}@{a.host}']
 
 def remote(command, data=None):
@@ -67,7 +68,8 @@ inv = project / 'inventory'
 inv.mkdir(exist_ok=True)
 settings = dict(ansible_host=a.host, ansible_port=a.port, ansible_user=a.user,
     ansible_ssh_private_key_file=str(key), ansible_become=True,
-    ansible_ssh_common_args=f'-F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile={work}/known_hosts -o StrictHostKeyChecking=yes',
+    ansible_ssh_common_args=f'-F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o UserKnownHostsFile={work}/known_hosts -o StrictHostKeyChecking=yes',
+    ansible_ssh_retries=2,
     secrets_dir=str(work / 'secrets'), test_artifact_root=str(work), hosting_test_mode=True, hosting_test_id=token,
     common_ssh_provider='minimal', common_ssh_admin_keys_file=('/root' if a.user == 'root' else f'/home/{a.user}') + '/.ssh/authorized_keys',
     common_timezone='Europe/Berlin', wp_site_only='', nginx_access_mode='direct', nginx_cloudflare_fetch=False,
