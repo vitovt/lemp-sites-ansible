@@ -46,7 +46,8 @@ class PolicyTests(unittest.TestCase):
                 nginx_trusted_proxies=['10.0.0.1/32'], nginx_cf_ranges=['192.0.2.0/24'],
                 nginx_cloudflare_only=mode != 'direct', nginx_real_ip_header='X-Forwarded-For')
             self.assertIn('default 1;' if mode == 'direct' else 'default 0;', rendered)
-            self.assertEqual('set_real_ip_from 10.0.0.1/32;' in rendered, mode == 'proxy')
+            self.assertIn('set_real_ip_from 10.0.0.1/32;', rendered)
+            self.assertEqual('set_real_ip_from 192.0.2.0/24;' in rendered, mode != 'proxy')
 
     def test_firewall_preserves_ipv6_and_blocks_smtp(self):
         env = Environment()
@@ -59,6 +60,16 @@ class PolicyTests(unittest.TestCase):
         self.assertIn('policy drop', rendered)
         self.assertIn('25, 465, 587, 2525', rendered)
         self.assertNotIn('flush ruleset', rendered)
+
+    def test_direct_ipv6_keeps_only_the_explicit_ipv4_proxy_open(self):
+        env = Environment()
+        env.filters['bool'] = bool
+        rendered = env.from_string((ROOT / 'roles/firewall/templates/hosting.nft.j2').read_text()).render(
+            ansible_managed='test', firewall_ssh_ports=[22], firewall_smtp_enabled=False,
+            firewall_smtp_ports=[25], nginx_access_mode='direct', nginx_trusted_proxies=['192.168.77.1/32'])
+        self.assertIn('meta nfproto ipv6 tcp dport { 80, 443 } accept', rendered)
+        self.assertIn('ip saddr 192.168.77.1/32 tcp dport { 80, 443 } accept', rendered)
+        self.assertNotIn('meta nfproto ipv4 tcp dport { 80, 443 } accept', rendered)
 
 
 if __name__ == '__main__':

@@ -21,8 +21,11 @@ table inet wp_hosting {
 {% if nginx_public_ipv4 | default(false) | bool %}
         meta nfproto ipv4 tcp dport { 80, 443 } accept
 {% endif %}
+{% for net in nginx_trusted_proxies | default([]) %}
+        {{ 'ip6' if ':' in net else 'ip' }} saddr {{ net }} tcp dport { 80, 443 } accept
+{% endfor %}
 {% else %}
-{% for net in (nginx_trusted_proxies if nginx_access_mode == 'proxy' else nginx_cf_ranges) %}
+{% for net in (nginx_trusted_proxies if nginx_access_mode == 'proxy' else (nginx_cf_ranges + nginx_trusted_proxies)) | unique %}
         {{ 'ip6' if ':' in net else 'ip' }} saddr {{ net }} tcp dport { 80, 443 } accept
 {% endfor %}
 {% endif %}

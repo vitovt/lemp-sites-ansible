@@ -1,7 +1,8 @@
 # {{ ansible_managed }}
 # Real visitor IP from Cloudflare + origin allow-list.
 
-{% for net in (nginx_trusted_proxies if nginx_access_mode == 'proxy' else nginx_cf_ranges) %}
+{% set peers = nginx_trusted_proxies if nginx_access_mode == 'proxy' else (nginx_cf_ranges + nginx_trusted_proxies) %}
+{% for net in peers | unique %}
 set_real_ip_from {{ net }};
 {% endfor %}
 real_ip_header {{ nginx_real_ip_header }};
@@ -14,7 +15,7 @@ geo $realip_remote_addr $cf_origin_ok {
     default {{ '0' if nginx_cloudflare_only else '1' }};
     127.0.0.1/32 1;
     ::1/128 1;
-{% for net in (nginx_trusted_proxies if nginx_access_mode == 'proxy' else nginx_cf_ranges) %}
+{% for net in peers | unique %}
     {{ net }} 1;
 {% endfor %}
 }

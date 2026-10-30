@@ -16,3 +16,4 @@ jobs:
       - run: tests/check.sh
       - run: ansible-lint --offline
       - run: python3 tests/probes/cache.py
+      - run: python3 tests/probes/real-ip.py

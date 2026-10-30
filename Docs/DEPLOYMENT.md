@@ -55,12 +55,13 @@ Select one `nginx_access_mode`.
 
 | Mode | Accepted web peers | Visitor IP header |
 | --- | --- | --- |
-| `cloudflare` | Cloudflare address ranges | `CF-Connecting-IP` |
+| `cloudflare` | Cloudflare address ranges and explicit trusted proxies | `CF-Connecting-IP` |
 | `proxy` | Explicit `nginx_trusted_proxies` | `X-Forwarded-For` |
-| `direct` | Public IPv6 clients | Cloudflare header only from Cloudflare peers |
+| `direct` | Public IPv6 clients and explicit trusted proxies | `CF-Connecting-IP` only from Cloudflare and trusted proxies |
 
-In direct mode, `nginx_public_ipv4: false` blocks non-local IPv4 web clients in the
-managed firewall. Set it to true only if public IPv4 access is required.
+In direct mode, `nginx_public_ipv4: false` blocks other non-local IPv4 web clients
+in the managed firewall. Explicit trusted proxy addresses remain permitted.
+Set it to true only if public IPv4 access is required.
 An input deny policy is used for both IP families. SSH, loopback, established
 connections, and ICMP including IPv6 neighbor discovery remain available.
 Unknown host names do not select a WordPress vhost.
@@ -79,6 +80,7 @@ headers with the validated address:
 ```nginx
 proxy_set_header Host $host;
 proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header CF-Connecting-IP $remote_addr;
 proxy_ssl_server_name on;
 proxy_ssl_name $host;
 proxy_ssl_verify on;
@@ -89,6 +91,19 @@ proxy_pass https://10.10.10.20;
 The parent proxy and its certificates are outside this repository.
 For public IPv6 without Cloudflare proxying, use `nginx_access_mode: direct`.
 Do not trust visitor-supplied IP headers from arbitrary internet addresses.
+
+For direct IPv6 together with a LAN IPv4 parent proxy:
+
+```yaml
+nginx_access_mode: direct
+nginx_public_ipv4: false
+nginx_trusted_proxies: [192.168.77.1/32]
+```
+
+Use the actual source address of the parent proxy. The parent must overwrite
+`CF-Connecting-IP` with its validated visitor address. This does not trust that
+header from other IPv4 or IPv6 clients. See the
+[parent upstream example](examples/proxmox-upstream.conf.example).
 
 ## Certificates
 
