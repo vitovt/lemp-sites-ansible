@@ -10,7 +10,7 @@ backup_restic_require_mount: "{{ backup_require_mount | default(true) }}"
 backup_restic_password_src: "{{ secrets_dir }}/{{ inventory_hostname }}/restic.pass"
 backup_restic_conf_dir: /etc/restic
 backup_restic_bin: /usr/local/sbin/wp-backup
-# Paths that do not exist are skipped.
+# Every configured path must exist. A missing path fails the backup.
 backup_restic_paths:
   - /srv/sites
   - /etc/nginx

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Deploy only an explicit disposable target with a separate inventory and secrets."""
 import argparse
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,10 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--host', required=True)
 p.add_argument('--port', type=int, default=22)
 p.add_argument('--user', default='vitovt')
+p.add_argument('--trusted-proxy', action='append', default=[], type=lambda value: str(ipaddress.ip_network(value, strict=False)))
+p.add_argument('--public-ipv6', type=ipaddress.IPv6Address)
+p.add_argument('--expect-disk-alert', action='store_true',
+               help='Continue only for the single known host disk-space alert; keep the monitor policy unchanged')
 p.add_argument('--key', type=Path, required=True)
 p.add_argument('--disposable', action='store_true', required=True)
 p.add_argument('--reset', action='store_true')
@@ -38,9 +43,14 @@ ssh = ['ssh', '-i', str(key), '-p', str(a.port), '-F', '/dev/null', '-o', 'Ident
 def remote(command, data=None):
     return subprocess.run(ssh + [command], input=data, check=True, env={'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8'})
 
-remote(f"sudo -n sh -c {shlex.quote('umask 077; printf %s ' + shlex.quote(token) + ' > /etc/wp-hosting-test-id')}")
+
+def privileged(command):
+    return command if a.user == 'root' else 'sudo -n ' + command
+
+
+remote(privileged('sh -c ' + shlex.quote('umask 077; printf %s ' + shlex.quote(token) + ' > /etc/wp-hosting-test-id')))
 if a.reset:
-    remote('sudo -n python3 - ' + shlex.quote(token), (ROOT / 'tests/integration/reset.py').read_bytes())
+    remote(privileged('python3 - ' + shlex.quote(token)), (ROOT / 'tests/integration/reset.py').read_bytes())
 # An allow-list excludes production inventory, local secrets, SSH keys, and .git.
 project = work / 'project'
 project.mkdir(exist_ok=True)
@@ -59,9 +69,12 @@ settings = dict(ansible_host=a.host, ansible_port=a.port, ansible_user=a.user,
     ansible_ssh_private_key_file=str(key), ansible_become=True,
     ansible_ssh_common_args=f'-F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile={work}/known_hosts -o StrictHostKeyChecking=yes',
     secrets_dir=str(work / 'secrets'), test_artifact_root=str(work), hosting_test_mode=True, hosting_test_id=token,
-    common_ssh_provider='minimal', common_ssh_admin_keys_file=f'/home/{a.user}/.ssh/authorized_keys',
+    common_ssh_provider='minimal', common_ssh_admin_keys_file=('/root' if a.user == 'root' else f'/home/{a.user}') + '/.ssh/authorized_keys',
     common_timezone='Europe/Berlin', wp_site_only='', nginx_access_mode='direct', nginx_cloudflare_fetch=False,
+    nginx_trusted_proxies=a.trusted_proxy,
     certbot_cloudflare_enabled=False, backup_require_mount=False, certbot_cloudflare_require_valid=False,
+    backup_restic_paths=['/srv/sites', '/etc/nginx', '/etc/php', '/etc/mysql',
+                        '/etc/ssl/certs/ssl-cert-snakeoil.pem', '/etc/ssl/private/ssl-cert-snakeoil.key'],
     mariadb_buffer_pool_size='256M', maintenance_auto_update=False, php_versions=['8.4'], php_default_version='8.4',
     wp_sites={'test1.example': {'php_version':'8.4', 'wp_install':True},
               'test2.example': {'php_version':'8.3', 'wp_install':True}})
@@ -73,6 +86,12 @@ if collections.is_dir():
     env['ANSIBLE_COLLECTIONS_PATH'] = str(collections)
 env['ANSIBLE_HOME'] = str(work / 'ansible-home')
 
+def disk_alert_only(output):
+    summary = re.search(r'^\s+msg: [\'\"]?1 FAIL: FAIL host disk_space:', output, re.M)
+    recap = re.search(r'^wptest\s+:\s+ok=\d+\s+changed=\d+\s+unreachable=0\s+failed=1\b', output, re.M)
+    return bool(summary and recap)
+
+
 def play(name, log, *args, expect_failure=False):
     command = ['ansible-playbook', '-i', str(inv / 'hosts.yml'), f'playbooks/{name}.yml', *args]
     with (work / log).open('w') as out:
@@ -82,6 +101,10 @@ def play(name, log, *args, expect_failure=False):
             out.write(line)
         rc = proc.wait()
         if bool(rc) != expect_failure:
+            out.flush()
+            if name == 'verify' and a.expect_disk_alert and rc and disk_alert_only((work / log).read_text()):
+                print('EXPECTED host disk_space alert: the default monitor remains FAIL; continuing disposable lifecycle tests', flush=True)
+                return
             raise SystemExit(f'Unexpected status {rc}: {name}; see {work / log}')
 
 print(f'Isolated results and generated secrets: {work}', flush=True)
@@ -96,7 +119,7 @@ if a.phase == 'all':
         for name in ['roles', 'tests', 'library']:
             tar.add(project / name, arcname=name, filter=lambda item: None if '__pycache__' in item.name else item)
     remote('mkdir -p /tmp/wp-hosting-probes && tar -xf - -C /tmp/wp-hosting-probes', archive.read_bytes())
-    remote('sudo -n python3 /tmp/wp-hosting-probes/tests/integration/scenarios.py ' + token)
+    remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/scenarios.py ' + token))
     play('verify', 'verify.log')
     # Prove that lost controller secrets cannot rotate live credentials.
     for relative in ['wptest/db/test1.example.pass', 'wptest/restic.pass']:
@@ -113,9 +136,9 @@ if a.phase == 'all':
     overrides = work / 'extra-sites.json'
     overrides.write_text(json.dumps({'wp_sites':extra_sites}))
     sentinel = (project / 'tests/integration/cache-sentinel.py').read_bytes()
-    remote('sudo -n python3 - ' + token + ' set', sentinel)
+    remote(privileged('python3 - ' + token + ' set'), sentinel)
     play('site', 'add.log', '-e', '@' + str(overrides), '-e', 'wp_site_only=test3.example')
-    remote('sudo -n python3 - ' + token + ' check', sentinel)
+    remote(privileged('python3 - ' + token + ' check'), sentinel)
     # Execute the real download task, then interrupt before database installation.
     import yaml
     install = yaml.safe_load((project / 'roles/site/tasks/install.yml').read_text())
@@ -134,4 +157,7 @@ if a.phase == 'all':
     play('site-repair-core', 'repair-report.log', '-e', 'repair_site=test3.example')
     play('site-remove', 'remove.log', '-e', 'wp_site_only=test3.example', '-e', 'confirm=test3.example')
     play('verify', 'final-verify.log')
+    if a.public_ipv6:
+        subprocess.run(['python3', str(project / 'tests/probes/public-ipv6.py'), '--work', str(work),
+                        '--address', str(a.public_ipv6), '--disposable'], env=env, check=True)
 print('PASS isolated integration run', flush=True)

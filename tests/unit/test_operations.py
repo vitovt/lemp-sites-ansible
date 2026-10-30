@@ -132,6 +132,19 @@ class OperationTests(unittest.TestCase):
             self.assertEqual(list(cache.iterdir()), [])
             self.assertEqual(outside.read_text(), 'untouched')
 
+    def test_missing_backup_path_stops_before_snapshot_or_prune(self):
+        import importlib.machinery
+        loader = importlib.machinery.SourceFileLoader('missing_path_cli', str(ROOT / 'roles/backup_restic/files/wp-backup'))
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        with patch.dict(sys.modules, {'wp_hosting':ops}):
+            loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            env = {'BACKUP_PATHS':str(Path(directory) / 'missing'), 'BACKUP_EXCLUDES':''}
+            with patch.object(module, 'backup_site'), patch.object(module, 'run') as command:
+                with self.assertRaisesRegex(ValueError, 'backup path is missing'):
+                    module.backup([{'domain':'example.com'}], env, None, full=True)
+                command.assert_not_called()
+
     def test_local_recovery_retention_preserves_live_dump_and_links(self):
         import importlib.machinery
         import os
