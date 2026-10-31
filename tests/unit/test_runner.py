@@ -45,7 +45,7 @@ class RunnerTests(unittest.TestCase):
                     '--host', '192.0.2.1', '--user', user, '--key', str(key), '--disposable',
                     '--phase', 'deploy', '--work', str(base)], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                hosts = json.loads((base / 'project/inventory/hosts.yml').read_text())
+                hosts = json.loads((base / 'project/inventories/wptest/settings.yml').read_text())
                 settings = hosts['all']['children']['wp']['hosts']['wptest']
                 self.assertEqual(settings['common_ssh_admin_keys_file'], keys)
                 self.assertNotIn('/etc/letsencrypt', settings['backup_restic_paths'])

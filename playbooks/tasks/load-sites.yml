@@ -1,0 +1,17 @@
+---
+- name: Read sites from the selected server directory
+  ansible.builtin.include_vars:
+    file: "{{ inventory_dir }}/sites.yml"
+    name: site_inventory
+
+- name: Require one site mapping in that directory
+  ansible.builtin.assert:
+    that:
+      - site_inventory.keys() | list == ['wp_sites']
+      - site_inventory.wp_sites is mapping
+      - secrets_dir == inventory_dir ~ '/secrets'
+    fail_msg: "sites.yml must contain only a wp_sites mapping."
+
+- name: Select the server's sites
+  ansible.builtin.set_fact:
+    wp_sites: "{{ site_inventory.wp_sites }}"

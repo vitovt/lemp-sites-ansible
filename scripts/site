@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manage a host_vars site list. Use --dry-run to inspect a change."""
+"""Manage one server's site list. Use --dry-run to inspect a change."""
 import argparse
 import os
 from pathlib import Path
@@ -9,6 +9,8 @@ import sys
 import tempfile
 
 import yaml
+from ruamel.yaml import YAML as RoundTripYAML
+from ruamel.yaml.error import YAMLError as RoundTripError
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'roles/site/files'), str(ROOT / 'library')]
@@ -30,11 +32,22 @@ def mapping(loader, node):
 
 
 UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+round_trip = RoundTripYAML(typ='rt')
+round_trip.allow_duplicate_keys = False
+round_trip.preserve_quotes = True
+
+
+def plain(value):
+    if isinstance(value, dict):
+        return {key: plain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [plain(item) for item in value]
+    return value
 
 
 def write(path, data):
     with tempfile.NamedTemporaryFile('w', dir=path.parent, delete=False) as temporary:
-        yaml.safe_dump(data, temporary, sort_keys=False)
+        round_trip.dump(data, temporary)
         name = temporary.name
     os.chmod(name, path.stat().st_mode & 0o777)
     os.replace(name, path)
@@ -66,7 +79,7 @@ def main():
     parser.add_argument('--yes', action='store_true')
     parser.add_argument('--activate', action='store_true')
     parser.add_argument('--cloudflare-token-ref', metavar='NAME',
-                        help='Name of secrets/cloudflare/NAME.ini for a new site')
+                        help='Name of this server\'s secrets/cloudflare/NAME.ini for a new site')
     args = parser.parse_args()
     if args.cloudflare_token_ref is not None:
         if args.command not in ('add', 'clone'):
@@ -75,17 +88,25 @@ def main():
             parser.error('Invalid Cloudflare token reference')
     if not re.fullmatch('[a-zA-Z0-9_][a-zA-Z0-9_-]*', args.host):
         parser.error('Invalid inventory host')
-    inventory = Path(os.environ.get('SITE_INVENTORY', 'inventories/prod'))
-    inventory = (ROOT / inventory).resolve() if not inventory.is_absolute() else inventory.resolve()
-    path = inventory / 'host_vars' / args.host / 'sites.yml'
-    if path.resolve() != path or not path.is_file():
-        parser.error('Unknown host_vars site list')
-    data = yaml.load(path.read_text(), Loader=UniqueLoader)
+    inventory_root = Path(os.environ.get('LEMP_INVENTORIES_ROOT', ROOT / 'inventories')).resolve()
+    server_dir = inventory_root / args.host
+    inventory = server_dir / 'settings.yml'
+    path = server_dir / 'sites.yml'
+    if server_dir.is_symlink() or path.is_symlink() or not inventory.is_file() or not path.is_file():
+        parser.error('Unknown server inventory')
+    settings = yaml.load(inventory.read_text(), Loader=UniqueLoader)
+    try:
+        hosts = settings['all']['children']['wp']['hosts']
+        if list(hosts) != [args.host] or hosts[args.host].get('secrets_dir') != '{{ inventory_dir }}/secrets':
+            parser.error('settings.yml must define only this server and its local secrets')
+    except (KeyError, TypeError, AttributeError):
+        parser.error('settings.yml must be a one-server Ansible inventory')
+    data = round_trip.load(path.read_text())
     if not isinstance(data, dict) or not isinstance(data.get('wp_sites'), dict):
         raise ValueError('Require a wp_sites mapping')
     sites = data['wp_sites']
     if args.command == 'info':
-        print(yaml.safe_dump(sites.get(args.domain) if args.domain else sites, sort_keys=False), end='')
+        print(yaml.safe_dump(plain(sites.get(args.domain) if args.domain else sites), sort_keys=False), end='')
         return 0
     if not args.domain or not DOMAIN.fullmatch(args.domain):
         parser.error('Specify a valid domain')
@@ -120,7 +141,7 @@ def main():
                                  staging=args.command == 'clone' and not args.activate)
             if args.cloudflare_token_ref:
                 sites[target]['cloudflare_token_ref'] = args.cloudflare_token_ref
-            print(yaml.safe_dump({target: sites[target]}, sort_keys=False), end='')
+            print(yaml.safe_dump(plain({target: sites[target]}), sort_keys=False), end='')
             if not args.dry_run:
                 write(path, data)
                 play('site', '-e', f'wp_site_only={target}')
@@ -147,6 +168,6 @@ def main():
 if __name__ == '__main__':
     try:
         sys.exit(main())
-    except (ValueError, RuntimeError, OSError, yaml.YAMLError) as exc:
+    except (ValueError, RuntimeError, OSError, yaml.YAMLError, RoundTripError) as exc:
         print('error: ' + str(exc), file=sys.stderr)
         sys.exit(1)

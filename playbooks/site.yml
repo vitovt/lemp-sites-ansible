@@ -5,6 +5,9 @@
   pre_tasks:
     - name: Check test isolation
       ansible.builtin.import_tasks: tasks/test-guard.yml
+    - name: Load this server site list
+      ansible.builtin.import_tasks: tasks/load-sites.yml
+      tags: [always]
 
   roles:
     - { role: preflight, tags: [preflight, always] }

@@ -12,15 +12,18 @@ class CLITests(unittest.TestCase):
     def test_named_cloudflare_token_is_written_before_site_deployment(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            path = base / 'host_vars/test/sites.yml'
+            path = base / 'test/sites.yml'
             path.parent.mkdir(parents=True)
+            (path.parent / 'settings.yml').write_text(
+                'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
+                '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
             path.write_text('wp_sites: {}\n')
             binary = base / 'bin'
             binary.mkdir()
             command = binary / 'ansible-playbook'
             command.write_text('#!/bin/sh\nexit 0\n')
             command.chmod(0o755)
-            env = {**os.environ, 'SITE_INVENTORY': directory,
+            env = {**os.environ, 'LEMP_INVENTORIES_ROOT': directory,
                    'PATH': str(binary) + ':' + os.environ['PATH']}
             invalid = subprocess.run([str(ROOT / 'scripts/site'), 'add', 'test', 'example.com',
                                       'example', '8.3', '--cloudflare-token-ref', '../escape', '--dry-run'],
@@ -38,15 +41,18 @@ class CLITests(unittest.TestCase):
     def test_clone_can_select_a_named_token_for_new_target(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            path = base / 'host_vars/test/sites.yml'
+            path = base / 'test/sites.yml'
             path.parent.mkdir(parents=True)
+            (path.parent / 'settings.yml').write_text(
+                'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
+                '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
             path.write_text('wp_sites:\n  source.example: {}\n')
             binary = base / 'bin'
             binary.mkdir()
             command = binary / 'ansible-playbook'
             command.write_text('#!/bin/sh\nexit 0\n')
             command.chmod(0o755)
-            env = {**os.environ, 'SITE_INVENTORY': directory,
+            env = {**os.environ, 'LEMP_INVENTORIES_ROOT': directory,
                    'PATH': str(binary) + ':' + os.environ['PATH']}
             result = subprocess.run([str(ROOT / 'scripts/site'), 'clone', 'test', 'source.example',
                                      'target.example', '--cloudflare-token-ref', 'customer_b', '--yes'],
@@ -57,11 +63,14 @@ class CLITests(unittest.TestCase):
 
     def test_yaml_input_validation_and_exact_domains(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'host_vars/test/sites.yml'
+            path = Path(directory) / 'test/sites.yml'
             path.parent.mkdir(parents=True)
+            (path.parent / 'settings.yml').write_text(
+                'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
+                '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
             original = 'wp_sites:\n  a-b.example:\n    user: old\n'
             path.write_text(original)
-            env = {**os.environ, 'SITE_INVENTORY': directory}
+            env = {**os.environ, 'LEMP_INVENTORIES_ROOT': directory}
             cases = [('a.b.example', 'new', '8.3', 0), ('new.example', 'root', '8.3', 1),
                      ('new.example', 'new', '8.3"\nmalicious: yes', 1), ('../escape', 'new', '8.3', 2)]
             for domain, user, php, expected in cases:
@@ -73,8 +82,11 @@ class CLITests(unittest.TestCase):
     def test_confirmed_clone_passes_the_exact_target(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            path = base / 'host_vars/test/sites.yml'
+            path = base / 'test/sites.yml'
             path.parent.mkdir(parents=True)
+            (path.parent / 'settings.yml').write_text(
+                'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
+                '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
             path.write_text('wp_sites:\n  a.example: {}\n  b.example: {}\n')
             binary = base / 'bin'
             binary.mkdir()
@@ -82,7 +94,7 @@ class CLITests(unittest.TestCase):
             command = binary / 'ansible-playbook'
             command.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$TEST_ARGUMENT_LOG"\n')
             command.chmod(0o755)
-            env = {**os.environ, 'SITE_INVENTORY':directory, 'TEST_ARGUMENT_LOG':str(log),
+            env = {**os.environ, 'LEMP_INVENTORIES_ROOT':directory, 'TEST_ARGUMENT_LOG':str(log),
                    'PATH':str(binary) + ':' + os.environ['PATH']}
             result = subprocess.run([str(ROOT / 'scripts/site'), 'clone', 'test', 'a.example', 'b.example'],
                                     input='b.example\n', text=True, env=env, capture_output=True)

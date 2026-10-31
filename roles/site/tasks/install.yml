@@ -62,7 +62,7 @@
       changed_when: false
       failed_when: false
 
-    # Generated once on the control node: secrets/<host>/wp-admin/<domain>.pass
+    # Generated once on the control node: secrets/wp-admin/<domain>.pass
     - name: Run the WordPress installer ({{ site_cfg.domain }})
       ansible.builtin.command:
         argv: >-
@@ -73,7 +73,7 @@
              '--skip-email', '--prompt=admin_password'] }}
         stdin: >-
           {{ lookup('ansible.builtin.password',
-             secrets_dir ~ '/' ~ inventory_hostname ~ '/wp-admin/' ~ site_cfg.domain ~ '.pass',
+             secrets_dir ~ '/wp-admin/' ~ site_cfg.domain ~ '.pass',
              chars=['ascii_letters', 'digits'], length=24) }}
       when: site_wp_installed.rc != 0
       changed_when: true

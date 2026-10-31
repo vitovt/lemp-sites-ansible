@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Run one playbook against one explicitly selected server."""
+
+import argparse
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+INVENTORIES = ROOT / 'inventories'
+COMMANDS = {
+    'doctor': 'doctor',
+    'site': 'site',
+    'verify': 'verify',
+    'backup': 'site-backup',
+}
+SERVER_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}')
+DOMAIN = re.compile(r'([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9-]+)')
+
+
+class UniqueLoader(yaml.SafeLoader):
+    pass
+
+
+def unique_mapping(loader, node):
+    result = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node)
+        if key in result:
+            raise ValueError(f'Duplicate YAML key: {key}')
+        result[key] = loader.construct_object(value_node)
+    return result
+
+
+UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
+
+
+def inspect(server):
+    if not SERVER_NAME.fullmatch(server):
+        raise ValueError('Invalid server name')
+    directory = INVENTORIES / server
+    if not directory.is_dir() or directory.is_symlink():
+        raise ValueError('Unknown server directory')
+    settings = directory / 'settings.yml'
+    sites = directory / 'sites.yml'
+    if not settings.is_file() or not sites.is_file() or settings.is_symlink() or sites.is_symlink():
+        raise ValueError('Require regular settings.yml and sites.yml files')
+    data = yaml.load(settings.read_text(), Loader=UniqueLoader)
+    try:
+        hosts = data['all']['children']['wp']['hosts']
+        if list(hosts) != [server] or not isinstance(hosts[server], dict):
+            raise ValueError('settings.yml must define only this server in group wp')
+        config = hosts[server]
+    except (KeyError, TypeError) as exc:
+        raise ValueError('settings.yml must be an Ansible inventory') from exc
+    site_data = yaml.load(sites.read_text(), Loader=UniqueLoader)
+    if not isinstance(site_data, dict) or list(site_data) != ['wp_sites'] or not isinstance(site_data['wp_sites'], dict):
+        raise ValueError('sites.yml must contain only a wp_sites mapping')
+    secret_root = directory / 'secrets'
+    if config.get('secrets_dir') != '{{ inventory_dir }}/secrets':
+        raise ValueError('secrets_dir must point to this server directory')
+    if not secret_root.is_dir() or secret_root.is_symlink():
+        raise ValueError('Require a regular secrets directory')
+    for folder in [secret_root, *secret_root.rglob('*')]:
+        if folder.is_symlink():
+            raise ValueError(f'Secret symlink is not allowed: {folder}')
+        if folder.is_dir():
+            if stat.S_IMODE(folder.stat().st_mode) & 0o077:
+                raise ValueError(f'Secret directory must be private (0700): {folder}')
+        elif folder.is_file() and not folder.name.endswith('.example'):
+            if stat.S_IMODE(folder.stat().st_mode) != 0o600:
+                raise ValueError(f'Secret file must have mode 0600: {folder}')
+    key = config.get('ansible_ssh_private_key_file')
+    if key:
+        key_path = Path(os.path.expandvars(str(key))).expanduser()
+        if not key_path.is_absolute():
+            key_path = ROOT / key_path
+        if not key_path.is_file() or key_path.is_symlink():
+            raise ValueError(f'SSH private key is missing or is a symlink: {key_path}')
+        if stat.S_IMODE(key_path.stat().st_mode) != 0o600:
+            raise ValueError(f'SSH private key must have mode 0600: {key_path}')
+    return settings
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('server')
+    parser.add_argument('command', choices=COMMANDS)
+    parser.add_argument('domain', nargs='?')
+    args = parser.parse_args()
+    try:
+        inventory = inspect(args.server)
+    except (ValueError, OSError, yaml.YAMLError) as exc:
+        parser.error(str(exc))
+    if args.domain and not DOMAIN.fullmatch(args.domain):
+        parser.error('Specify a valid domain')
+    extra = ['-e', f'wp_site_only={args.domain}'] if args.domain else []
+    return subprocess.call([
+        'ansible-playbook', '-i', str(inventory),
+        f'playbooks/{COMMANDS[args.command]}.yml', '--limit', args.server, *extra,
+    ], cwd=ROOT)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

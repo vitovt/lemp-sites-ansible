@@ -62,7 +62,7 @@ See the [MariaDB client option-file reference](https://github.com/mariadb-corpor
 | Item | Effect and decision |
 | --- | --- |
 | Fixed system paths | Helpers use /srv/sites and standard binary/config paths. Do not move them by changing one role variable. |
-| YAML CLI writes | The parser removes YAML comments and can change formatting. It validates values and replaces the file atomically. Review inventory diffs. |
+| YAML CLI writes | The CLI now keeps YAML comments and replaces the file atomically. Review inventory diffs after an edit. |
 | Conservative page cache | Cookies and queries reduce cache hit rate. Keep this default unless application tests justify narrower exclusions. |
 | Shared page-cache clearing | Data replacement clears the page cache for all sites. Other sites can have a short increase in cache misses. Valkey ACL changes do not restart the service or clear its data. |
 | No SMTP | Local email and password-reset messages need an explicit future transport. SMTP remains blocked by design. HTTP mail APIs are separate. |

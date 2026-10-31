@@ -1,0 +1,74 @@
+---
+# One file lists every site on this server. Replace the safe example domain.
+# Required: one primary domain under wp_sites. Values below show a fresh site.
+# Remove this entry and set wp_sites: {} to install services before adding a site.
+wp_sites:
+  site1.example.com:
+    # Linux code owner. This account owns WordPress files and runs CLI updates.
+    # The role creates a separate site1-php account for PHP-FPM. It can read
+    # code, but it can write only to selected content and temporary paths.
+    # wp_admin_user below is a WordPress login, not a Linux account.
+    # Default: domain with dots and hyphens changed to underscores.
+    # Use [a-z][a-z0-9_]*, at most 28 characters. Do not rename after install.
+    user: site1
+    # Default: derived from the domain. Must be unique on this server.
+    # Changing an installed database name requires a planned migration.
+    # db_name: site1
+    # Default: php_default_version in settings.yml. Supported: 8.3, 8.4, 8.5.
+    # A new branch needs a full server run before site-apply can use it.
+    php_version: "8.3"
+    # Default: []. Each alias needs DNS and must appear on the certificate.
+    # For an added alias, run the full site playbook to update the certificate.
+    # aliases: [www.site1.example.com]
+    # Default: the server token at secrets/cloudflare.ini.
+    # For another Cloudflare account, copy the .example token to
+    # secrets/cloudflare/customer_b.ini (0600), then enable this reference.
+    # The token must cover the primary name and all aliases.
+    # cloudflare_token_ref: customer_b
+
+    # Default: false for a migrated site. true installs fresh WordPress when
+    # the core files are absent; later runs do not replace an existing install.
+    wp_install: true
+    # Default: latest. Pin a tested WordPress version for a new install.
+    # wp_version: latest
+    # Default: en_US. Use a valid WordPress locale such as de_DE.
+    # wp_locale: en_US
+    # Default: wpadmin. This is the WordPress login. Its generated password
+    # is stored in secrets/wp-admin/<domain>.pass (0600), not in this YAML.
+    # wp_admin_user: wpadmin
+    # Default: admin@<domain>. Use a monitored mailbox when available.
+    # wp_admin_email: ""
+    # Default: primary domain. This is the initial WordPress site title.
+    # wp_title: ""
+    # Default: wp_. Used only when a new wp-config.php is created.
+    # Changing it later needs a database migration.
+    # table_prefix: wp_
+
+    # Default: true. Disable the guest page cache for incompatible dynamic pages.
+    # cache: true
+    # Default: true. Creates a per-site Valkey account. The object-cache
+    # plugin still needs separate setup. Use false if this site cannot use it.
+    # redis: true
+    # Default: false. Enable XML-RPC only when a client needs it.
+    # xmlrpc: false
+    # Default: false. true sends a noindex header; use it for staging sites.
+    # staging: false
+
+    # Defaults: 4 workers, 30s idle time, 500 requests per worker.
+    # Increase max children only after measuring memory and concurrent load.
+    # pm_max_children: 4
+    # pm_idle_timeout: 30s
+    # pm_max_requests: 500
+    # Defaults: 256M PHP memory, 64M upload. Larger uploads also need
+    # nginx_client_max_body_size in settings.yml.
+    # memory_limit: 256M
+    # upload_max_filesize: 64M
+    # Default: 10 posts in 24 hours. Set 0 to disable this alert.
+    # monitor_content_max: 10
+
+  # Optional second site. Uncomment the block and replace its domain.
+  # site2.example.com:
+  #   user: site2
+  #   php_version: "8.4"
+  #   wp_install: true
+  #   cloudflare_token_ref: customer_b

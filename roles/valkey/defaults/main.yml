@@ -13,10 +13,10 @@ valkey_maxmemory: 256mb
 valkey_maxmemory_policy: allkeys-lru
 valkey_conf: /etc/valkey/valkey.conf
 valkey_aclfile: /etc/valkey/users.acl
-# Passwords: generated on the control node, kept in secrets/ (gitignored).
-#   secrets/<host>/valkey/<domain>.pass  per-site ACL user "<user>" (keys "<user>:*")
-#   secrets/<host>/valkey/admin.pass     admin user for root (valkey-cli)
-valkey_secrets_dir: "{{ secrets_dir }}/{{ inventory_hostname }}/valkey"
+# Passwords: generated in this server's ignored secrets directory.
+#   secrets/valkey/<domain>.pass  per-site ACL user "<user>" (keys "<user>:*")
+#   secrets/valkey/admin.pass     admin user for root (valkey-cli)
+valkey_secrets_dir: "{{ secrets_dir }}/valkey"
 # Per-site rules after the key pattern. FLUSHDB/KEYS etc. are @dangerous:
 # a site can only flush its own keys (WP_REDIS_SELECTIVE_FLUSH).
 valkey_site_acl_rules: "resetchannels +@all -@admin -@dangerous +info"

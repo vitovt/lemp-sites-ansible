@@ -11,7 +11,7 @@
     that:
       - test_marker.content | b64decode | trim == hosting_test_id
       - secrets_dir == test_artifact_root ~ '/secrets'
-      - test_artifact_root is match('^/tmp/lemp-integration-[a-zA-Z0-9_-]+$')
+      - test_artifact_root is match('^/tmp/lemp-integration-[a-zA-Z0-9_-]+/project/inventories/wptest$')
       - certbot_cloudflare_enabled | default(false) | bool == false
       - inventory_hostname == 'wptest'
     fail_msg: "The integration environment or secret path is not isolated."

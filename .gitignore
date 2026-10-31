@@ -1,7 +1,13 @@
-# Secrets: everything under secrets/ is private, except the docs and *.example templates.
+# Private server inventories are never tracked. Only the safe example is public.
+/inventories/*/
+!/inventories/example-server/
+/inventories/example-server/secrets/*
+!/inventories/example-server/secrets/*.example
+!/inventories/example-server/secrets/cloudflare/
+/inventories/example-server/secrets/cloudflare/*
+!/inventories/example-server/secrets/cloudflare/*.example
+# Keep any old controller secrets private during the transition.
 /secrets/*
-!/secrets/README.md
-!/secrets/*.example
 
 # Ansible runtime artefacts
 *.retry

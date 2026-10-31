@@ -31,10 +31,10 @@ If the parent host owns the firewall, set `firewall_manage: false` and apply
 matching input and SMTP output rules on that host. Do not disable both firewalls.
 LXC validation is still a separate release check.
 
-Set the real address in `inventories/prod/hosts.yml`.
-For a server example that is ready to copy and has two site entries, see
-[Example inventory](EXAMPLES.md).
-Declare sites in `inventories/prod/host_vars/<host>/sites.yml`:
+Copy `inventories/example-server/` to `inventories/<server>/`. Rename the host
+key in `settings.yml` to the directory name and set its SSH address. Every
+command must select that `settings.yml` explicitly. See [Example inventory](EXAMPLES.md).
+Declare all sites in `inventories/<server>/sites.yml`:
 
 ```yaml
 wp_sites:
@@ -115,7 +115,7 @@ DNS-01 is the default:
 certbot_cloudflare_method: dns-cloudflare
 ```
 
-Put a zone-scoped Cloudflare DNS edit token in `secrets/cloudflare.ini`.
+Put a zone-scoped Cloudflare DNS edit token in `inventories/<server>/secrets/cloudflare.ini`.
 The role copies it to the target with mode 0600. DNS-01 also works when the DNS
 record is not proxied. No inbound HTTP request is needed for this challenge.
 
@@ -124,9 +124,9 @@ Cloudflare account for a site, put a second token in a named file on the
 control machine:
 
 ```sh
-mkdir -m 700 -p secrets/cloudflare
-cp secrets/cloudflare.ini.example secrets/cloudflare/customer_b.ini
-chmod 600 secrets/cloudflare/customer_b.ini
+mkdir -m 700 -p inventories/my-server/secrets/cloudflare
+cp inventories/my-server/secrets/cloudflare/customer_b.ini.example inventories/my-server/secrets/cloudflare/customer_b.ini
+chmod 600 inventories/my-server/secrets/cloudflare/customer_b.ini
 ```
 
 Set `dns_cloudflare_api_token` in that file. Then add the file name without
@@ -144,7 +144,7 @@ For a new WordPress site, the site CLI can set this reference before its first
 certificate request:
 
 ```sh
-scripts/site add wp01 second.example second 8.3 --install-wp --cloudflare-token-ref customer_b
+scripts/site add my-server second.example second 8.3 --install-wp --cloudflare-token-ref customer_b
 ```
 
 Use a simple reference name: lowercase letters, digits, `_`, and `-`; start
@@ -177,7 +177,7 @@ Use Cloudflare Full (strict) for the origin connection.
 
 ## Secrets and first run
 
-Keep controller secrets outside Git. Back up the secret directory separately.
+Keep each server directory outside Git and back up its secrets securely.
 Missing secrets for an existing site or service stop preflight.
 Do not generate replacement passwords to recover a lost secret directory.
 Recover the original values. Use a separate procedure for credential rotation.
@@ -186,10 +186,36 @@ Mount the backup volume at `/mnt/backups`. Configure an independent remote copy
 before you rely on the service for important data. See Operations.
 
 ```sh
-ansible-playbook -i inventories/prod/hosts.yml playbooks/doctor.yml
-ansible-playbook -i inventories/prod/hosts.yml playbooks/site.yml
-ansible-playbook -i inventories/prod/hosts.yml playbooks/verify.yml
+scripts/lemp my-server doctor
+scripts/lemp my-server site
+scripts/lemp my-server verify
 ```
 
 A syntax check is not a deployment test. A dry run on an empty host cannot read
 files that later tasks will create. Validate new inventory on a disposable guest.
+
+## Telegram alerts
+
+Telegram is optional. With no `telegram.env`, alerts go to syslog only. To
+enable Telegram for one server, create a bot with BotFather and obtain the chat
+ID of the private alert chat or group. Set these two values in a copy of the
+server template:
+
+```sh
+cp inventories/my-server/secrets/telegram.env.example inventories/my-server/secrets/telegram.env
+chmod 600 inventories/my-server/secrets/telegram.env
+nano inventories/my-server/secrets/telegram.env
+```
+
+Set `TG_BOT_TOKEN` and `TG_CHAT_ID`. Do not put them in `settings.yml`, Git, or
+command arguments. Run `scripts/lemp my-server site` to install the file. The
+file is root-only on the server. Test alert delivery from that server before
+relying on it.
+
+## PHP branches
+
+Site configuration accepts `8.3`, `8.4`, and `8.5`. Set `php_default_version`
+and the base `php_versions` list in `settings.yml`; a full server run also
+installs branches requested in `sites.yml`. The current integration fixture
+uses 8.3 and 8.4. PHP 8.5 is accepted by preflight but is not covered by that
+fixture. Test plugins and extensions before changing a live site's branch.

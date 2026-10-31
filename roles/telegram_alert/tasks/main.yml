@@ -34,5 +34,6 @@
   ansible.builtin.debug:
     msg: >-
       {{ telegram_alert_env_src }} not found: tg-alert logs to syslog only.
-      Copy secrets/telegram.env.example to secrets/telegram.env to enable Telegram.
+      Copy this server's secrets/telegram.env.example to secrets/telegram.env
+      and set mode 0600 to enable Telegram.
   when: not telegram_alert_src.stat.exists

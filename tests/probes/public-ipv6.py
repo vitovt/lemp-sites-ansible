@@ -17,10 +17,10 @@ if not re.fullmatch(r'/tmp/lemp-integration-[a-zA-Z0-9_-]+', str(work)):
     p.error('Require a /tmp/lemp-integration-* directory')
 token = (work / 'test-id').read_text().strip()
 assert re.fullmatch('[0-9a-f]{32}', token)
-hosts = json.loads((work / 'project/inventory/hosts.yml').read_text())
+hosts = json.loads((work / 'project/inventories/wptest/settings.yml').read_text())
 s = hosts['all']['children']['wp']['hosts']['wptest']
 assert s['hosting_test_mode'] is True and s['hosting_test_id'] == token
-assert s['secrets_dir'] == str(work / 'secrets')
+assert s['secrets_dir'] == '{{ inventory_dir }}/secrets'
 ssh = ['ssh', '-i', s['ansible_ssh_private_key_file'], '-p', str(s['ansible_port']),
        '-F', '/dev/null', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none',
        '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3',

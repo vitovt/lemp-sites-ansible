@@ -2,19 +2,21 @@
 
 ## Sites
 
-Use `scripts/site` on the control machine. It reads and writes YAML with a parser.
-The CLI needs the host_vars layout described in Deployment.
+Use `scripts/site` on the control machine. It preserves YAML comments when it
+edits the selected server's site list.
+The CLI uses one private directory per server, as described in Deployment.
 
 ```sh
-scripts/site add wp01 example.com example 8.4 --dry-run
-scripts/site add wp01 example.com example 8.4 --install-wp
-scripts/site add wp01 second.example second 8.4 --install-wp --cloudflare-token-ref customer_b
-scripts/site info wp01 example.com
-scripts/site clone wp01 example.com staging.example.com
-scripts/site remove wp01 staging.example.com
+scripts/site add my-server example.com example 8.4 --dry-run
+scripts/site add my-server example.com example 8.4 --install-wp
+scripts/site add my-server second.example second 8.4 --install-wp --cloudflare-token-ref customer_b
+scripts/site info my-server example.com
+scripts/site clone my-server example.com staging.example.com
+scripts/site remove my-server staging.example.com
 ```
 
-Use `SITE_INVENTORY=<directory>` to select another inventory.
+Select the server by directory name. `scripts/site` reads `inventories/<server>/sites.yml`.
+For an existing site, edit that file and run `scripts/lemp my-server site example.com`.
 A failed site deployment keeps the requested inventory entry for recovery.
 Correct the error and run convergence again. Do not assume that a failed play
 made no changes to the target.

@@ -6,7 +6,7 @@
   ansible.builtin.set_fact:
     site_valkey_pass: >-
       {{ lookup('ansible.builtin.password',
-         secrets_dir ~ '/' ~ inventory_hostname ~ '/valkey/' ~ site_cfg.domain ~ '.pass',
+         secrets_dir ~ '/valkey/' ~ site_cfg.domain ~ '.pass',
          chars=['ascii_letters', 'digits'], length=32) }}
   when: site_cfg.redis | bool
   no_log: true

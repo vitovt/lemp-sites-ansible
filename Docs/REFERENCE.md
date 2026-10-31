@@ -78,9 +78,9 @@ Nginx still respects upstream private/no-store and Set-Cookie response headers.
 Use an explicit inventory and host limit for one-shot operations:
 
 ```sh
-ansible-playbook -i inventories/prod/hosts.yml playbooks/verify.yml --limit wp01
-ansible-playbook -i inventories/prod/hosts.yml playbooks/site-backup.yml --limit wp01 -e wp_site_only=example.com
-ansible-playbook -i inventories/prod/hosts.yml playbooks/site-repair-core.yml --limit wp01 -e repair_site=example.com
+ansible-playbook -i inventories/my-server/settings.yml playbooks/verify.yml --limit my-server
+ansible-playbook -i inventories/my-server/settings.yml playbooks/site-backup.yml --limit my-server -e wp_site_only=example.com
+ansible-playbook -i inventories/my-server/settings.yml playbooks/site-repair-core.yml --limit my-server -e repair_site=example.com
 ```
 
 Core repair without confirmation is a report. Add `-e confirm=example.com` to
@@ -91,7 +91,7 @@ Git changes. Review the files, plugins, and database after an incident.
 `site_fix_perms` is an explicit repair tag:
 
 ```sh
-ansible-playbook -i inventories/prod/hosts.yml playbooks/site.yml --limit wp01 \
+ansible-playbook -i inventories/my-server/settings.yml playbooks/site.yml --limit my-server \
   -t site,site_fix_perms -e wp_site_only=example.com
 ```
 

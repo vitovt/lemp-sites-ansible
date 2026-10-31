@@ -61,16 +61,14 @@ if (ROOT / 'collections').is_dir():
     shutil.copytree(ROOT / 'collections', project / 'collections', dirs_exist_ok=True)
 for name in ['ansible.cfg', 'requirements.yml']:
     shutil.copy2(ROOT / name, project / name)
-config = (project / 'ansible.cfg').read_text().replace('inventories/prod/hosts.yml', 'inventory/hosts.yml')
-(project / 'ansible.cfg').write_text(config)
-(work / 'secrets').mkdir(mode=0o700, exist_ok=True)
-inv = project / 'inventory'
-inv.mkdir(exist_ok=True)
+inv = project / 'inventories/wptest'
+inv.mkdir(parents=True, exist_ok=True)
+(inv / 'secrets').mkdir(mode=0o700, exist_ok=True)
 settings = dict(ansible_host=a.host, ansible_port=a.port, ansible_user=a.user,
     ansible_ssh_private_key_file=str(key), ansible_become=True,
     ansible_ssh_common_args=f'-F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o UserKnownHostsFile={work}/known_hosts -o StrictHostKeyChecking=yes',
     ansible_ssh_retries=2,
-    secrets_dir=str(work / 'secrets'), test_artifact_root=str(work), hosting_test_mode=True, hosting_test_id=token,
+    secrets_dir='{{ inventory_dir }}/secrets', test_artifact_root=str(inv), hosting_test_mode=True, hosting_test_id=token,
     common_ssh_provider='minimal', common_ssh_admin_keys_file=('/root' if a.user == 'root' else f'/home/{a.user}') + '/.ssh/authorized_keys',
     common_timezone='Europe/Berlin', wp_site_only='', nginx_access_mode='direct', nginx_cloudflare_fetch=False,
     nginx_trusted_proxies=a.trusted_proxy,
@@ -78,9 +76,11 @@ settings = dict(ansible_host=a.host, ansible_port=a.port, ansible_user=a.user,
     backup_restic_paths=['/srv/sites', '/etc/nginx', '/etc/php', '/etc/mysql',
                         '/etc/ssl/certs/ssl-cert-snakeoil.pem', '/etc/ssl/private/ssl-cert-snakeoil.key'],
     mariadb_buffer_pool_size='256M', maintenance_auto_update=False, php_versions=['8.4'], php_default_version='8.4',
-    wp_sites={'test1.example': {'php_version':'8.4', 'wp_install':True},
-              'test2.example': {'php_version':'8.3', 'wp_install':True}})
-(inv / 'hosts.yml').write_text(json.dumps({'all': {'children': {'wp': {'hosts': {'wptest': settings}}}}}, indent=2))
+    )
+site_list = {'test1.example': {'php_version':'8.4', 'wp_install':True},
+             'test2.example': {'php_version':'8.3', 'wp_install':True}}
+(inv / 'settings.yml').write_text(json.dumps({'all': {'children': {'wp': {'hosts': {'wptest': settings}}}}}, indent=2))
+(inv / 'sites.yml').write_text(json.dumps({'wp_sites': site_list}, indent=2))
 env = {'PATH': os.environ['PATH'], 'LANG':'C.UTF-8', 'ANSIBLE_CONFIG': str(project / 'ansible.cfg'), 'ANSIBLE_LOCAL_TEMP': str(work / 'ansible-local'), 'ANSIBLE_SSH_CONTROL_PATH_DIR': str(work / 'ssh-control'), 'ANSIBLE_NOCOWS':'1', 'ANSIBLE_FORCE_COLOR':'0'}
 
 collections = Path(shutil.which('ansible-playbook')).resolve().parent.parent / 'collections'
@@ -95,7 +95,7 @@ def disk_alert_only(output):
 
 
 def play(name, log, *args, expect_failure=False):
-    command = ['ansible-playbook', '-i', str(inv / 'hosts.yml'), f'playbooks/{name}.yml', *args]
+    command = ['ansible-playbook', '-i', str(inv / 'settings.yml'), f'playbooks/{name}.yml', *args]
     with (work / log).open('w') as out:
         proc = subprocess.Popen(command, cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in proc.stdout:
@@ -127,7 +127,7 @@ if a.phase in ['all', 'lifecycle']:
         play('verify', 'verify.log')
     # Prove that lost controller secrets cannot rotate live credentials.
     for relative in ['wptest/db/test1.example.pass', 'wptest/restic.pass']:
-        original = work / 'secrets' / relative
+        original = inv / 'secrets' / relative.replace('wptest/', '', 1)
         missing = original.with_suffix('.missing')
         original.rename(missing)
         try:
@@ -135,7 +135,7 @@ if a.phase in ['all', 'lifecycle']:
             assert 'changed=0' in (work / ('missing-' + original.parent.name + '.log')).read_text()
         finally:
             missing.rename(original)
-    extra_sites = dict(settings['wp_sites'])
+    extra_sites = dict(site_list)
     extra_sites['test3.example'] = {'user':'test3_example', 'db_name':'test3_example', 'php_version':'8.4', 'wp_install':False}
     overrides = work / 'extra-sites.json'
     overrides.write_text(json.dumps({'wp_sites':extra_sites}))

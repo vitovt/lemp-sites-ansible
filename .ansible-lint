@@ -1,0 +1,4 @@
+---
+# Private inventories are ignored by Git and checked by dedicated controller tests.
+exclude_paths:
+  - inventories/

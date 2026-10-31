@@ -25,7 +25,7 @@ site_defaults:
   wp_install: false
   wp_version: latest
   wp_locale: en_US
-  # Not "admin" (first name bots try). Password: secrets/<host>/wp-admin/<domain>.pass
+  # Not "admin" (first name bots try). Password: secrets/wp-admin/<domain>.pass
   wp_admin_user: wpadmin
   wp_admin_email: ""   # empty = admin@<domain>
   wp_title: ""         # empty = domain

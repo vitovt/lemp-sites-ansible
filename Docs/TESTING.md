@@ -55,8 +55,8 @@ random target marker and checks it before playbooks and destructive scenarios.
 Only run this command against a guest that can be destroyed.
 
 The runner copies an allow-list of project files to a private /tmp directory.
-It excludes production inventory, controller secrets, .git, and SSH keys.
-It generates one test inventory and new secrets. It uses a reduced environment,
+It excludes every real server inventory, controller secrets, .git, and SSH keys.
+It generates one isolated server inventory and new secrets. It uses a reduced environment,
 ignores SSH config and agents, and uses only the explicit test identity.
 Results and generated credentials stay in the selected private work directory.
 Do not commit that directory or print its secrets in a public log.

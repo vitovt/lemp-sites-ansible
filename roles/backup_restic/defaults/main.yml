@@ -7,7 +7,7 @@ backup_restic_repo: /mnt/backups/restic
 # disk is not a backup). Tests set backup_require_mount=false.
 backup_restic_require_mount: "{{ backup_require_mount | default(true) }}"
 # Repo password: generated on the control node. Without it the repo cannot be read.
-backup_restic_password_src: "{{ secrets_dir }}/{{ inventory_hostname }}/restic.pass"
+backup_restic_password_src: "{{ secrets_dir }}/restic.pass"
 backup_restic_conf_dir: /etc/restic
 backup_restic_bin: /usr/local/sbin/wp-backup
 # Every configured path must exist. A missing path fails the backup.

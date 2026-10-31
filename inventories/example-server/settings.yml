@@ -1,0 +1,164 @@
+---
+# One server inventory. Copy this directory to inventories/<server>/.
+# Rename example-server below to the exact new directory name.
+# This inventory contains exactly one host, in the wp group.
+all:
+  children:
+    wp:
+      hosts:
+        example-server:
+          # Required. Replace with the address used by this control machine.
+          # Direct IPv6: 2001:db8::125 (documentation address only).
+          # NAT SSH: use the parent IPv4 address and external forwarded port.
+          ansible_host: YOUR_SERVER_ADDRESS
+          # Default: root. Use a sudo account only with passwordless sudo.
+          ansible_user: root
+          # Default: 22. This is the reachable SSH port, not necessarily the
+          # guest port in firewall_ssh_ports.
+          ansible_port: 22
+          # Optional: private key path outside this repository and inventory.
+          # scripts/lemp doctor requires mode 0600 when this is set.
+          # ansible_ssh_private_key_file: ~/.ssh/example-server-key
+          # Optional jump host for private LAN SSH; replace the placeholder.
+          # ansible_ssh_common_args: "-o ProxyJump=root@jump.example.invalid"
+          # Mandatory server-local secret root. Do not change this path.
+          secrets_dir: "{{ inventory_dir }}/secrets"
+          # Default: empty means all sites. scripts/lemp site-apply sets one.
+          wp_site_only: ""
+
+          # Time zone for logs and timers. Use an IANA name; default UTC.
+          common_timezone: Europe/Berlin
+          # Guest path of the SSH account's authorized_keys file. Change this
+          # when ansible_user is a non-root account.
+          common_ssh_admin_keys_file: /root/.ssh/authorized_keys
+          # Default: key-only SSH, no automatic reboot after package updates.
+          # common_unattended_include_sury: true  # Include PHP security updates.
+          # common_unattended_auto_reboot: false
+          # Default: minimal key-only SSH drop-in. devsec uses the full
+          # hardening role; use it only after checking its SSH policy.
+          # common_ssh_provider: devsec
+
+          # Guest SSH listener ports. For NAT, this can differ from ansible_port.
+          firewall_ssh_ports: [22]
+          # Default: true. Set false only if the parent provides equivalent
+          # inbound and outbound rules. SMTP stays blocked by default.
+          firewall_manage: true
+          # Default: false. Enable only after a separate mail design is ready.
+          firewall_smtp_enabled: false
+          # Block these outbound SMTP ports when SMTP is disabled. Change only
+          # if a documented mail transport policy requires another port.
+          # firewall_smtp_ports: [25, 465, 587, 2525]
+
+          # Active network pattern: direct public IPv6, no public guest IPv4.
+          # A trusted LAN IPv4 proxy can be added without exposing guest IPv4.
+          nginx_access_mode: direct
+          nginx_public_ipv4: false
+          nginx_trusted_proxies: []
+          # LAN IPv4 proxy through Proxmox, with direct IPv6 still available:
+          # nginx_access_mode: direct
+          # nginx_public_ipv4: false
+          # nginx_trusted_proxies: [192.0.2.1/32]
+          # Proxy-only: accept only the named parent proxy, no direct clients:
+          # nginx_access_mode: proxy
+          # nginx_trusted_proxies: [192.0.2.1/32]
+          # Cloudflare-only: accept Cloudflare edges and trusted LAN proxies:
+          # nginx_access_mode: cloudflare
+          # nginx_trusted_proxies: []
+          # Values: direct, proxy, cloudflare. proxy needs at least one peer.
+          # Do not trust an arbitrary address as a proxy; it can spoof IP data.
+          # Default: true. Use false only in an isolated test without fetch.
+          # nginx_cloudflare_fetch: true
+          # Default: 64m. Raise this above a site's upload_max_filesize.
+          # nginx_client_max_body_size: 128m
+          # Login and XML-RPC request limit; set after traffic measurements.
+          # nginx_login_rate: 6r/m
+          # nginx_login_burst: 5
+          # Default: 2048 connections per worker. Tune after a load test.
+          # nginx_worker_connections: 2048
+          # Default: "off". Keep server version banners hidden.
+          # nginx_server_tokens: "off"
+          # Cache size and TTL affect disk use and freshness.
+          # nginx_fastcgi_cache_size: 256m
+          # nginx_fastcgi_cache_inactive: 60m
+          # nginx_fastcgi_cache_valid: 10m
+
+          # Default PHP branch and branches installed even with no site using
+          # them. The site list can add a branch during a full server run.
+          # Supported site branches: "8.3", "8.4", "8.5".
+          php_versions: ["8.3"]
+          php_default_version: "8.3"
+          # Advanced extension lists and INI maps are in role defaults. Override
+          # only after testing each branch and the required WordPress plugins.
+          # php_extensions_extra_by_version: {"8.4": [php8.4-imagick]}
+          # php_extensions_skip_by_version: {"8.4": []}
+          # php_ini_fpm_by_version: {"8.4": {memory_limit: 256M}}
+          # Do not change repository URLs or key fingerprints for routine use.
+
+          # Capacity controls. Tune only after a load test.
+          # mariadb_buffer_pool_size: "2G"  # Default: 40% of host RAM.
+          # mariadb_max_connections: 100
+          # mariadb_slow_log: true
+          # mariadb_long_query_time: 2
+          # mariadb_log_file_size: 256M
+          # mariadb_tmp_table_size: 64M
+          # mariadb_bind_address: 127.0.0.1  # Keep DB local to this server.
+          # valkey_maxmemory: 256mb
+          # valkey_maxmemory_policy: allkeys-lru
+
+          # Default: dns-cloudflare. Put this server's DNS edit token in
+          # secrets/cloudflare.ini with mode 0600. A site can use a named token
+          # from this server's secrets/cloudflare/ directory.
+          certbot_cloudflare_method: dns-cloudflare
+          # Exception: HTTP-01, when public port 80 reaches the Nginx challenge
+          # path on this guest. It does not need a Cloudflare token.
+          # certbot_cloudflare_method: webroot
+          # Default: true. Disable certificate management only in a disposable
+          # test; require_valid must then also be false.
+          # certbot_cloudflare_enabled: true
+          certbot_cloudflare_require_valid: true
+          # Default: empty. Set a real operations mailbox for CA notices.
+          # certbot_cloudflare_email: ""
+          # Default: 30 seconds. Raise for slow DNS TXT propagation.
+          # certbot_cloudflare_propagation_seconds: 60
+          # Extra Certbot flags need a reviewed CA use case, for example a
+          # disposable staging CA test. Do not set for routine production.
+          # certbot_cloudflare_extra_args: ["--test-cert"]
+
+          # Mount a separate backup volume before the first deployment.
+          # The repository path must be on that mount.
+          backup_restic_mount: /mnt/backups
+          backup_restic_repo: /mnt/backups/restic
+          backup_restic_require_mount: true
+          # Defaults: 7 daily, 4 weekly, 6 monthly snapshots.
+          # backup_restic_keep_daily: 7
+          # backup_restic_keep_weekly: 4
+          # backup_restic_keep_monthly: 6
+          # Default: daily at 03:15 server time; systemd calendar syntax.
+          # backup_restic_on_calendar: "*-*-* 03:15:00"
+          # Configure a separate remote copy before relying on backup recovery.
+          # backup_restic_copy_repo: "sftp:backup.example.invalid:/repository"
+          # Backup paths and excludes are shared server policy. Add a path only
+          # when it exists, and never exclude site data needed for recovery.
+          # backup_restic_paths: [/srv/sites, /etc/nginx, /etc/php, /etc/mysql, /etc/letsencrypt]
+          # backup_restic_excludes: [/srv/sites/*/tmp]
+
+          # Default: every five minutes. The cron runs as the PHP runtime user.
+          site_cron_minute: "*/5"
+          # Alert thresholds and timer. Change after measuring normal traffic.
+          # wp_monitor_disk_min_free_pct: 10
+          # wp_monitor_cert_min_days: 14
+          # wp_monitor_on_calendar: "*-*-* 04:30:00"
+          # Default checks cover services, integrity, disk, DB, and certificates.
+          # Change the check list only after reviewing roles/wp_monitor defaults.
+          # wp_monitor_checks: []  # Empty would disable the normal checks.
+          # Exclude a known post type from the content spike count if needed.
+          # wp_monitor_content_exclude_types: [shop_order, shop_order_refund, shop_order_placehold]
+          # wp_monitor_content_attachments: false
+          # Minimum free space for preflight (MiB); default thresholds are in
+          # roles/preflight/defaults/main.yml. Do not lower them on a full disk.
+          # preflight_min_free_mb: {"/": 2048, "/srv/sites": 2048, "/var": 1024}
+          # preflight_min_mem_mb: 1024  # Warning threshold, not a hard stop.
+          # Default: true. Checked updates run from a root-owned systemd timer.
+          # Set false for manual terminal updates.
+          maintenance_auto_update: true
+          # maintenance_on_calendar: "Sun *-*-* 05:00:00"
