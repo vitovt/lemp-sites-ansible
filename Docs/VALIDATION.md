@@ -231,3 +231,26 @@ certificate. Real DNS-01 issue and renewal, public HTTP-01, the parent Nginx
 proxy, Telegram delivery, a mounted backup volume, remote backup copy, and a
 full-host restore still need separate checks. The fixture checks application
 restore and clone safety; it does not prove disaster recovery after host loss.
+
+## Removal without backup on 2026-10-31
+
+The controller passed 64 unit tests, syntax checks for eight playbooks, and
+the pinned offline `ansible-lint` production profile. The new tests confirm
+that emergency removal does not read the restic environment, check its mount,
+or call backup. Normal removal still calls backup.
+
+The disposable QEMU VM was checked against its existing test marker. The local
+server inventory had no saved DB or Valkey password for `test1.example`. The
+updated helper and command were installed on that VM. The operator command
+`scripts/site remove 241-ans01-presta test1.example --no-backup` required the
+exact domain by default and completed with one changed task. The remote site
+directory, database, Linux user, Nginx vhost, and PHP pool were removed. No new
+removal archive appeared. The other site's directory and database remained,
+and its site facts, vhost, and PHP pool kept the same SHA-256 hashes. The local
+site list now contains only `test2.example`.
+
+The test did not inspect remote restic snapshot metadata before and after the
+operation. The playbook selected the no-backup branch, and the command's unit
+test proves that branch does not call the snapshot function. Old snapshots, if
+present, were not deleted. A failed removal after partial changes still needs
+manual recovery before another convergence run.

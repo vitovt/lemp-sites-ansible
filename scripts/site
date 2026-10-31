@@ -78,9 +78,13 @@ def main():
     parser.add_argument('--install-wp', action='store_true')
     parser.add_argument('--yes', action='store_true')
     parser.add_argument('--activate', action='store_true')
+    parser.add_argument('--no-backup', action='store_true',
+                        help='Remove without a snapshot or archive (remove only)')
     parser.add_argument('--cloudflare-token-ref', metavar='NAME',
                         help='Name of this server\'s secrets/cloudflare/NAME.ini for a new site')
     args = parser.parse_args()
+    if args.no_backup and args.command != 'remove':
+        parser.error('--no-backup is only valid with remove')
     if args.cloudflare_token_ref is not None:
         if args.command not in ('add', 'clone'):
             parser.error('--cloudflare-token-ref is only for add and clone')
@@ -118,7 +122,8 @@ def main():
 
     if args.command != 'clone' and not args.yes and not args.dry_run:
         expected = args.domain if args.command == 'remove' else 'yes'
-        if input(f'{args.command} {args.domain} on {args.host}. Type {expected}: ') != expected:
+        no_backup = ' without a backup' if args.command == 'remove' and args.no_backup else ''
+        if input(f'{args.command} {args.domain} on {args.host}{no_backup}. Type {expected}: ') != expected:
             parser.error('Aborted')
     if args.command in ('add', 'clone'):
         target = args.extra[0] if args.command == 'clone' and args.extra else args.domain
@@ -159,7 +164,10 @@ def main():
         if args.domain not in sites:
             parser.error('Unknown site')
         if not args.dry_run:
-            play('site-remove', '-e', f'wp_site_only={args.domain}', '-e', f'confirm={args.domain}')
+            extra = ['-e', f'wp_site_only={args.domain}', '-e', f'confirm={args.domain}']
+            if args.no_backup:
+                extra += ['-e', 'remove_without_backup=true']
+            play('site-remove', *extra)
             del sites[args.domain]
             write(path, data)
     return 0

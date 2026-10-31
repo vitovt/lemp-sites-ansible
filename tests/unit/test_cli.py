@@ -101,3 +101,37 @@ class CLITests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('confirm=b.example', log.read_text().splitlines())
             self.assertIn('over b.example', result.stdout)
+
+    def test_remove_without_backup_requires_explicit_flag_and_keeps_inventory_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            server = base / 'test'
+            server.mkdir()
+            (server / 'settings.yml').write_text(
+                'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
+                '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
+            sites = server / 'sites.yml'
+            sites.write_text('wp_sites:\n  first.example: {}\n  second.example: {}\n')
+            binary = base / 'bin'
+            binary.mkdir()
+            log = base / 'arguments'
+            command = binary / 'ansible-playbook'
+            command.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$TEST_ARGUMENT_LOG"\nexit "${TEST_PLAY_EXIT:-0}"\n')
+            command.chmod(0o755)
+            env = {**os.environ, 'LEMP_INVENTORIES_ROOT': directory,
+                   'TEST_ARGUMENT_LOG': str(log), 'PATH': str(binary) + ':' + os.environ['PATH']}
+            invalid = subprocess.run([str(ROOT / 'scripts/site'), 'info', 'test', '--no-backup'],
+                                     env=env, capture_output=True)
+            self.assertEqual(invalid.returncode, 2)
+            failed = subprocess.run([str(ROOT / 'scripts/site'), 'remove', 'test',
+                                     'first.example', '--no-backup', '--yes'],
+                                    env={**env, 'TEST_PLAY_EXIT': '1'}, capture_output=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn('first.example', yaml.safe_load(sites.read_text())['wp_sites'])
+            removed = subprocess.run([str(ROOT / 'scripts/site'), 'remove', 'test',
+                                      'first.example', '--no-backup'], input='first.example\n',
+                                     text=True, env=env, capture_output=True)
+            self.assertEqual(removed.returncode, 0, removed.stderr)
+            self.assertIn('without a backup', removed.stdout)
+            self.assertIn('remove_without_backup=true', log.read_text().splitlines())
+            self.assertEqual(list(yaml.safe_load(sites.read_text())['wp_sites']), ['second.example'])

@@ -58,8 +58,11 @@ For a site change after installation, edit `inventories/my-server/sites.yml`
 and run `scripts/lemp my-server site-apply <domain>`. Use
 `scripts/site add my-server <domain> <linux-user> 8.3 --install-wp` to add a site;
 it starts a full server convergence. Use `scripts/site info`, `clone`, and
-`remove` for the other basic operations. The WordPress administrator password
-is in `inventories/my-server/secrets/wp-admin/<domain>.pass`.
+`remove` for the other basic operations. If a site's credentials are lost,
+`scripts/site remove my-server example.com --no-backup` deletes it without a
+new snapshot or archive after exact-domain confirmation. The WordPress
+administrator password is in
+`inventories/my-server/secrets/wp-admin/<domain>.pass`.
 
 ## Documentation
 

@@ -1,5 +1,5 @@
 ---
-- name: Remove one site after a complete backup
+- name: Remove one site, with a backup by default
   hosts: wp
   become: true
   gather_facts: false
@@ -19,3 +19,9 @@
       ansible.builtin.command:
         argv: [/usr/local/sbin/wp-backup, remove, "{{ wp_site_only }}", --yes]
       changed_when: true
+      when: not remove_without_backup | default(false) | bool
+    - name: Remove the site without a backup after explicit override
+      ansible.builtin.command:
+        argv: [/usr/local/sbin/wp-backup, remove, "{{ wp_site_only }}", --yes, --no-backup]
+      changed_when: true
+      when: remove_without_backup | default(false) | bool

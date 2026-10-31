@@ -13,6 +13,7 @@ scripts/site add my-server second.example second 8.4 --install-wp --cloudflare-t
 scripts/site info my-server example.com
 scripts/site clone my-server example.com staging.example.com
 scripts/site remove my-server staging.example.com
+scripts/site remove my-server abandoned.example.com --no-backup
 ```
 
 Select the server by directory name. `scripts/site` reads `inventories/<server>/sites.yml`.
@@ -53,6 +54,13 @@ rm /srv/sites/<domain>/conf/maintenance
 activation. Use it only when the copied integrations are safe.
 Removal makes a complete restic snapshot and a private archive before deletion.
 Passwords on the controller remain available for recovery.
+Use `--no-backup` only when you accept permanent loss of this site's current
+files and database. It skips both the new restic snapshot and the removal
+archive. It works when the site's saved credentials, restic environment, or
+backup mount are unavailable. By default, the CLI asks you to type the exact
+domain. `--yes` permits automation; the playbook still checks its `confirm`
+value. The shared operation lock remains active. Existing older snapshots are not
+deleted. The command does not delete controller secret files.
 
 ## Migration and permissions
 

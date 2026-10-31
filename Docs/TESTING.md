@@ -15,6 +15,9 @@ python3 tests/probes/real-ip.py
 Controller tests do not connect to a server. The cache probe starts a private
 Nginx process and a mock FastCGI server on temporary localhost ports.
 It needs the local nginx binary and permission to bind local sockets.
+The removal tests check that `--no-backup` skips restic environment and mount
+checks, while normal removal still calls backup. They also check that the site
+CLI passes the override only for removal and keeps inventory after a failure.
 
 ## Disposable VM
 

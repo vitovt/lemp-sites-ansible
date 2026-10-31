@@ -125,12 +125,17 @@ def main():
     parser.add_argument('arguments', nargs='*')
     parser.add_argument('--yes', action='store_true')
     parser.add_argument('--activate', action='store_true')
+    parser.add_argument('--no-backup', action='store_true',
+                        help='Remove one site without a snapshot or archive')
     args = parser.parse_args()
+    if args.no_backup and args.action != 'remove':
+        parser.error('--no-backup is only valid with remove')
     if os.geteuid() != 0:
         parser.error('Run as root')
     os.umask(0o077)
-    env = {**os.environ, **read_env('/etc/restic/env')}
-    if env.get('BACKUP_REQUIRE_MOUNT', 'true') == 'true' and not os.path.ismount(env['BACKUP_MOUNT']):
+    # Emergency removal must also work when restic credentials or its mount are lost.
+    env = {} if args.no_backup else {**os.environ, **read_env('/etc/restic/env')}
+    if not args.no_backup and env.get('BACKUP_REQUIRE_MOUNT', 'true') == 'true' and not os.path.ismount(env['BACKUP_MOUNT']):
         raise RuntimeError('The backup disk is not mounted')
     with operation_lock():
         db = Database()
@@ -161,8 +166,10 @@ def main():
             if len(args.arguments) != 1 or not args.yes:
                 parser.error('remove <domain> --yes')
             s = site(args.arguments[0])
-            backup([s], env, db)
-            remove_site(s, db, env.get('REMOVED_DIR', '/mnt/backups/removed'))
+            if not args.no_backup:
+                backup([s], env, db)
+            remove_site(s, db, env.get('REMOVED_DIR', '/mnt/backups/removed'),
+                        without_backup=args.no_backup)
         elif args.action == 'clone':
             if len(args.arguments) != 2:
                 parser.error('clone <source> <target> [--yes] [--activate]')

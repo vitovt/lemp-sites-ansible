@@ -399,23 +399,24 @@ def clone(source, target, db, *, confirm=False, activate=False):
     print(f'clone recovery: {recovery}')
 
 
-def remove_site(s, db, archive_dir):
-    """Remove one site only after its caller made a complete restic backup."""
+def remove_site(s, db, archive_dir, *, without_backup=False):
+    """Remove one site after backup, or with an explicit no-backup override."""
     import tarfile
-    archive_dir = Path(archive_dir)
-    archive_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    archive = archive_dir / (s['domain'] + '-' + str(time.time_ns()) + '.tar.gz')
     with maintenance(s):
-        with tarfile.open(archive, 'w:gz') as tar:
-            def include(member):
-                relative = member.name.partition('/')[2]
-                if relative == 'tmp' or relative.startswith('tmp/') or relative == 'htdocs/wp-content/cache' or relative.startswith('htdocs/wp-content/cache/'):
-                    return None
-                return member
-            tar.add(s['base'], arcname=s['domain'], filter=include)
-        with tarfile.open(archive) as tar:
-            if s['domain'] + '/backup/manifest.json' not in tar.getnames():
-                raise RuntimeError('The removal archive is incomplete')
+        if not without_backup:
+            archive_dir = Path(archive_dir)
+            archive_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            archive = archive_dir / (s['domain'] + '-' + str(time.time_ns()) + '.tar.gz')
+            with tarfile.open(archive, 'w:gz') as tar:
+                def include(member):
+                    relative = member.name.partition('/')[2]
+                    if relative == 'tmp' or relative.startswith('tmp/') or relative == 'htdocs/wp-content/cache' or relative.startswith('htdocs/wp-content/cache/'):
+                        return None
+                    return member
+                tar.add(s['base'], arcname=s['domain'], filter=include)
+            with tarfile.open(archive) as tar:
+                if s['domain'] + '/backup/manifest.json' not in tar.getnames():
+                    raise RuntimeError('The removal archive is incomplete')
         for folder in ['sites-enabled', 'sites-available']:
             (Path('/etc/nginx') / folder / (s['domain'] + '.conf')).unlink(missing_ok=True)
         run(['nginx', '-t', '-q'])
@@ -443,7 +444,10 @@ def remove_site(s, db, archive_dir):
             run(['userdel', user])
         run(['groupdel', s['SITE_USER']])
     shutil.rmtree(s['base'])
-    print('removed archive: ' + str(archive))
+    if without_backup:
+        print('removed without backup: ' + s['domain'])
+    else:
+        print('removed archive: ' + str(archive))
 
 
 def update_site(s, db):
