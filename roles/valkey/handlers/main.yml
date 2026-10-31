@@ -4,14 +4,3 @@
   ansible.builtin.systemd_service:
     name: "{{ valkey_service }}"
     state: restarted
-
-- name: Load Valkey ACL
-  ansible.builtin.shell:
-    cmd: >-
-      set -o pipefail;
-      REDISCLI_AUTH="$(cat {{ valkey_admin_pass_file | quote }})"
-      valkey-cli --no-auth-warning -s {{ valkey_socket | quote }} --user admin ACL LOAD
-      | grep -qx OK
-    executable: /bin/bash
-  changed_when: true
-  no_log: true
