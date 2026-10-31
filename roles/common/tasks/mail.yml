@@ -19,3 +19,4 @@
   when:
     - not (firewall_smtp_enabled | default(false) | bool)
     - item in ansible_facts.services
+    - ansible_facts.services[item].source | default('') == 'systemd'
