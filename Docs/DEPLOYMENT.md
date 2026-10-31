@@ -87,7 +87,7 @@ proxy_ssl_server_name on;
 proxy_ssl_name $host;
 proxy_ssl_verify on;
 proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
-proxy_pass https://10.10.10.20;
+proxy_pass https://192.0.2.20;
 ```
 
 The parent proxy and its certificates are outside this repository.
@@ -99,7 +99,7 @@ For direct IPv6 together with a LAN IPv4 parent proxy:
 ```yaml
 nginx_access_mode: direct
 nginx_public_ipv4: false
-nginx_trusted_proxies: [192.168.77.1/32]
+nginx_trusted_proxies: [192.0.2.1/32]
 ```
 
 Use the actual source address of the parent proxy. The parent must overwrite

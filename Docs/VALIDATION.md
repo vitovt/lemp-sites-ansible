@@ -58,10 +58,9 @@ at host UID 100000 and contains 65536 IDs. The container permits nftables,
 network namespaces, and veth operations. These permissions are specific to this
 parent configuration; they are not guaranteed for every LXC installation.
 
-The guest has LAN IPv4 192.168.77.125 and public IPv6
-2a01:4f9:3051:41ea:1111::125. IPv4 NAT exposes SSH port 22125. Direct IPv6 SSH
-uses port 22. The later NAT intermittency is noted below. The test policy permits web traffic
-from the IPv4 parent address 192.168.77.1/32 and from direct IPv6 clients.
+The guest has LAN IPv4 and direct public IPv6. IPv4 NAT exposes a forwarded SSH
+port. Direct IPv6 SSH uses port 22. The later NAT intermittency is noted below.
+The test policy permits web traffic from the IPv4 parent and direct IPv6 clients.
 Other IPv4 web peers remain blocked.
 
 The run found and corrected these additional issues:
@@ -140,11 +139,12 @@ Use temporary hostnames through curl's explicit resolver for a manual check:
 
 ```sh
 curl -6 --noproxy '*' -k \
-  --resolve 'test1.example:443:[2a01:4f9:3051:41ea:1111::125]' \
+  --resolve 'test1.example:443:[2001:db8::125]' \
   https://test1.example/
 ```
 
-`-k` is the explicit self-signed test exception. A real domain and certificate
+Replace the documentation IPv6 address before use. `-k` is the explicit
+self-signed test exception. A real domain and certificate
 are still required before a public deployment. The two demo sites are retained.
 WordPress administrator credentials are private generated test data. After the
 clone scenario, the second site contains the first site's WordPress users.
@@ -183,3 +183,51 @@ certificate or test renewal against Cloudflare. Before production use, issue a
 certificate for each account with scoped test-zone tokens, change one existing
 site from the default to a named token, and run `certbot renew --dry-run` on the
 disposable host. Check the saved credential path for every certificate.
+
+## Server inventory and site-only run on 2026-10-31
+
+The public `main` history was rewritten with `git-filter-repo` before this
+refactor. The old `inventories/prod/` and `inventories/test/` paths are absent
+from reachable `main` history. The rewritten branch was force-pushed.
+The two old server configurations were converted into separate, ignored local
+directories. Their server and site settings were compared with the source
+versions. Existing passwords were intentionally not migrated. Each directory
+has an empty private secrets directory for new credentials. A copied directory
+also needs its external SSH key and controller dependencies on the new machine.
+
+The controller passed 60 unit tests and syntax checks for eight playbooks.
+The pinned offline `ansible-lint` passed the production profile with no
+findings. Local Nginx cache and visitor-IP probes passed. The example YAML
+loads as a one-server inventory. A copy of it supports the site CLI and keeps
+its comments. Two copies load only their own sites. `doctor` rejects unsafe
+secret and external key modes. Git tracks only the safe example under
+`inventories/`; both local server directories and the test SSH key are ignored.
+
+A clean Debian 13 QEMU deployment used a generated inventory and secrets in a
+private `/tmp` work directory. The runner did not copy real inventories, keys,
+or secrets into the fixture. The second full convergence reported `changed=0`.
+A selected site change ran through `site-apply`; its repeat reported
+`changed=0`. The other site's PHP pool and Nginx vhost, and the shared Valkey
+ACL file, kept the same checksums. `doctor` passed after the site was restored.
+
+The first lifecycle run found that restarting Valkey for every ACL change
+cleared another site's cache when a new site was added. The handler now loads
+ACL changes without a restart when the installed admin password is unchanged.
+A first installation or admin password change still restarts Valkey. The
+clean QEMU deployment and repeat convergence passed after this fix.
+
+The final lifecycle phase passed all 10 service and application scenarios.
+It exercised exact-schema backup and restore, rejected a cross-schema SQL
+import, tested clone confirmation and rollback, and checked the staging gate.
+Adding a third site kept another site's Valkey cache value. The deliberate
+missing-secret checks stopped before changes. The deliberate interrupted
+installation kept the HTTP gate closed and then resumed. The repair report,
+archived removal, and final `verify` passed. Final verification reported
+`31 PASS, 0 FAIL`.
+
+This refactor has not been deployed to the current LXC server. The QEMU fixture
+did not use a public IPv6 address, a real Cloudflare token, or a public CA
+certificate. Real DNS-01 issue and renewal, public HTTP-01, the parent Nginx
+proxy, Telegram delivery, a mounted backup volume, remote backup copy, and a
+full-host restore still need separate checks. The fixture checks application
+restore and clone safety; it does not prove disaster recovery after host loss.
