@@ -25,6 +25,25 @@
          chars=['ascii_letters', 'digits'], length=32) }}
   no_log: true
 
+- name: Check the installed admin password file
+  ansible.builtin.stat:
+    path: "{{ valkey_admin_pass_file }}"
+  register: valkey_admin_file_state
+
+- name: Read the installed admin password
+  ansible.builtin.slurp:
+    src: "{{ valkey_admin_pass_file }}"
+  register: valkey_admin_existing
+  when: valkey_admin_file_state.stat.isreg | default(false)
+  no_log: true
+
+- name: Check whether the admin password stayed the same
+  ansible.builtin.set_fact:
+    valkey_acl_reload_safe: >-
+      {{ (valkey_admin_existing.content | default('') | b64decode | trim) == valkey_admin_pass
+         and valkey_admin_file_state.stat.isreg | default(false) }}
+  no_log: true
+
 - name: Install Valkey config
   ansible.builtin.template:
     src: valkey.conf.j2
@@ -42,7 +61,7 @@
     group: valkey
     mode: "0640"
   diff: false
-  notify: Restart valkey
+  notify: Apply valkey ACL
 
 - name: Store admin password for root
   ansible.builtin.copy:

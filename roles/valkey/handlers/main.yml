@@ -1,6 +1,27 @@
 ---
-# Restart (not reload): config and aclfile are read at start. Cache is lost, by design.
+# A config change needs a restart. It clears the cache.
 - name: Restart valkey
   ansible.builtin.systemd_service:
     name: "{{ valkey_service }}"
     state: restarted
+
+# A new site changes only the ACL file. Keep the shared cache when the
+# installed admin password can authenticate to the running service.
+- name: Reload valkey ACL with existing admin password
+  ansible.builtin.command:
+    argv: [valkey-cli, -s, /run/valkey/valkey-server.sock, --user, admin, ACL, LOAD]
+  environment:
+    REDISCLI_AUTH: "{{ valkey_admin_pass }}"
+  changed_when: true
+  when: valkey_acl_reload_safe | bool
+  no_log: true
+  listen: Apply valkey ACL
+
+# A first install or explicit admin password change needs the new credentials
+# loaded by a restart before authentication can work.
+- name: Restart valkey for changed admin password
+  ansible.builtin.systemd_service:
+    name: "{{ valkey_service }}"
+    state: restarted
+  when: not valkey_acl_reload_safe | bool
+  listen: Apply valkey ACL
