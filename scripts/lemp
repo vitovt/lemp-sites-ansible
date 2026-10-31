@@ -17,6 +17,7 @@ INVENTORIES = ROOT / 'inventories'
 COMMANDS = {
     'doctor': 'doctor',
     'site': 'site',
+    'site-apply': 'site-apply',
     'verify': 'verify',
     'backup': 'site-backup',
 }
@@ -98,6 +99,8 @@ def main():
         inventory = inspect(args.server)
     except (ValueError, OSError, yaml.YAMLError) as exc:
         parser.error(str(exc))
+    if args.command == 'site-apply' and not args.domain:
+        parser.error('site-apply requires one domain')
     if args.domain and not DOMAIN.fullmatch(args.domain):
         parser.error('Specify a valid domain')
     extra = ['-e', f'wp_site_only={args.domain}'] if args.domain else []

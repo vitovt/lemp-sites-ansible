@@ -14,9 +14,11 @@
     owner: root
     group: root
     mode: "0755"
+  when: not site_apply_only | default(false) | bool
 
 - name: Helper scripts
   ansible.builtin.import_tasks: tools.yml
+  when: not site_apply_only | default(false) | bool
 
 - name: Configure sites
   ansible.builtin.include_tasks: one-site.yml

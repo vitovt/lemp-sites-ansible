@@ -53,8 +53,9 @@ PATH="$PWD/.venv/bin:$PATH" scripts/lemp my-server verify
 
 `doctor` checks local secret and SSH key permissions before Ansible connects.
 The server name is always explicit; `ansible.cfg` has no default inventory.
+Run `export PATH="$PWD/.venv/bin:$PATH"` before the later commands below.
 For a site change after installation, edit `inventories/my-server/sites.yml`
-and run `scripts/lemp my-server site <domain>`. Use
+and run `scripts/lemp my-server site-apply <domain>`. Use
 `scripts/site add my-server <domain> <linux-user> 8.3 --install-wp` to add a site;
 it starts a full server convergence. Use `scripts/site info`, `clone`, and
 `remove` for the other basic operations. The WordPress administrator password

@@ -16,7 +16,12 @@ scripts/site remove my-server staging.example.com
 ```
 
 Select the server by directory name. `scripts/site` reads `inventories/<server>/sites.yml`.
-For an existing site, edit that file and run `scripts/lemp my-server site example.com`.
+For an existing site, edit that file and run `scripts/lemp my-server site-apply example.com`.
+For a new site, `scripts/site add` runs the full server playbook.
+Use `scripts/lemp my-server site` after changing certificates, PHP branches,
+or shared service settings. `site-apply` rejects a Valkey toggle and a
+certificate name or DNS token change until the required migration or full
+certificate run is complete.
 A failed site deployment keeps the requested inventory entry for recovery.
 Correct the error and run convergence again. Do not assume that a failed play
 made no changes to the target.

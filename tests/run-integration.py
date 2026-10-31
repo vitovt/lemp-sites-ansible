@@ -115,6 +115,24 @@ if a.phase != 'lifecycle':
     play('site', 'idempotence.log')
     if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'idempotence.log').read_text()):
         raise SystemExit('FAIL second convergence changed the target')
+    # A selected site update must not rewrite another site's pool or vhost.
+    other = ['/etc/php/8.3/fpm/pool.d/test2_example.conf',
+             '/etc/nginx/sites-available/test2.example.conf', '/etc/valkey/users.acl']
+    checksum = f'/tmp/lemp-site-apply-{token}.sha256'
+    remote(privileged('sh -c ' + shlex.quote('sha256sum ' + ' '.join(map(shlex.quote, other)) + ' > ' + shlex.quote(checksum))))
+    changed_sites = dict(site_list)
+    changed_sites['test1.example'] = {**changed_sites['test1.example'], 'pm_max_children': 5}
+    changed_path = work / 'site-apply-sites.json'
+    changed_path.write_text(json.dumps({'wp_sites': changed_sites}))
+    try:
+        play('site-apply', 'site-apply.log', '-e', '@' + str(changed_path), '-e', 'wp_site_only=test1.example')
+        play('site-apply', 'site-apply-repeat.log', '-e', '@' + str(changed_path), '-e', 'wp_site_only=test1.example')
+        if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'site-apply-repeat.log').read_text()):
+            raise SystemExit('FAIL repeated site-apply changed resources')
+        remote(privileged('sha256sum -c ' + shlex.quote(checksum)))
+        play('site-apply', 'site-apply-restore.log', '-e', 'wp_site_only=test1.example')
+    finally:
+        remote(privileged('rm -f ' + shlex.quote(checksum)))
     play('doctor', 'doctor.log')
 if a.phase in ['all', 'lifecycle']:
     archive = work / 'probes.tar'
@@ -122,9 +140,8 @@ if a.phase in ['all', 'lifecycle']:
         for name in ['roles', 'tests', 'library']:
             tar.add(project / name, arcname=name, filter=lambda item: None if '__pycache__' in item.name else item)
     remote('mkdir -p /tmp/wp-hosting-probes && tar -xf - -C /tmp/wp-hosting-probes', archive.read_bytes())
-    if a.phase == 'all':
-        remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/scenarios.py ' + token))
-        play('verify', 'verify.log')
+    remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/scenarios.py ' + token))
+    play('verify', 'verify.log')
     # Prove that lost controller secrets cannot rotate live credentials.
     for relative in ['wptest/db/test1.example.pass', 'wptest/restic.pass']:
         original = inv / 'secrets' / relative.replace('wptest/', '', 1)

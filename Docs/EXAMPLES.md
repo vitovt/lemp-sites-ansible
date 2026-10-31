@@ -61,3 +61,10 @@ scripts/lemp my-server doctor
 scripts/lemp my-server site
 scripts/lemp my-server verify
 ```
+
+`site-apply <domain>` changes one installed site and reloads Nginx or PHP-FPM
+when needed. It does not install packages or update shared server settings.
+Use the full `site` command for a new site, a new PHP branch, certificate name
+or token changes, or shared services. A Valkey toggle needs a reviewed
+wp-config.php and ACL migration. A shared daemon reload can briefly affect other
+sites, even when their files do not change.

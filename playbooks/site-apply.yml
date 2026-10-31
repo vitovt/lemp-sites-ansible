@@ -1,0 +1,104 @@
+---
+# Apply one existing site's local settings. Install new sites with site.yml.
+- name: Apply one WordPress site
+  hosts: wp
+  become: true
+  vars:
+    site_apply_only: true
+  pre_tasks:
+    - name: Check test isolation
+      ansible.builtin.import_tasks: tasks/test-guard.yml
+    - name: Load this server site list
+      ansible.builtin.import_tasks: tasks/load-sites.yml
+      tags: [always]
+    - name: Load Nginx defaults and handlers without shared tasks
+      ansible.builtin.import_role:
+        name: nginx
+        tasks_from: site-apply-prereqs
+    - name: Load PHP variables and handlers without shared tasks
+      ansible.builtin.import_role:
+        name: php
+        tasks_from: site-apply-prereqs
+    - name: Load MariaDB defaults without shared tasks
+      ansible.builtin.import_role:
+        name: mariadb
+        tasks_from: site-apply-prereqs
+    - name: Require one selected site
+      ansible.builtin.assert:
+        that:
+          - wp_site_only | default('') | length > 0
+          - wp_site_only in wp_sites
+        fail_msg: "Set wp_site_only to a site in this server's sites.yml."
+    - name: Check that the site is already installed
+      ansible.builtin.stat:
+        path: "/srv/sites/{{ wp_site_only }}/conf/site.env"
+      register: site_apply_existing
+    - name: Refuse a first install through site-apply
+      ansible.builtin.assert:
+        that: site_apply_existing.stat.isreg | default(false)
+        fail_msg: "Install a new site with site.yml first."
+    - name: Read the existing site settings
+      ansible.builtin.slurp:
+        src: "/srv/sites/{{ wp_site_only }}/conf/site.env"
+      register: site_apply_env
+    - name: Refuse a Valkey switch through site-apply
+      ansible.builtin.assert:
+        that:
+          - >-
+            (site_apply_env.content | b64decode | regex_search('(?m)^REDIS=(true|false)$'))
+            == 'REDIS=' ~ ((wp_sites[wp_site_only].redis | default(true) | bool) | lower)
+        fail_msg: "Changing redis needs a reviewed wp-config.php and Valkey ACL migration."
+    - name: Check the selected PHP branch is installed
+      ansible.builtin.stat:
+        path: "/etc/php/{{ wp_sites[wp_site_only].php_version | default(php_default_version) }}/fpm"
+      register: site_apply_php
+    - name: Require an installed PHP branch
+      ansible.builtin.assert:
+        that: site_apply_php.stat.isdir | default(false)
+        fail_msg: "Run site.yml to install the PHP branch first."
+    - name: Read the selected site's certificate names
+      ansible.builtin.command:
+        argv: [openssl, x509, -in, "/etc/letsencrypt/live/{{ wp_site_only }}/cert.pem", -noout, -ext, subjectAltName]
+      register: site_apply_cert_names
+      changed_when: false
+      when: certbot_cloudflare_require_valid | default(true) | bool
+    - name: Require a certificate for every requested name
+      ansible.builtin.assert:
+        that:
+          - >-
+            ([wp_site_only] + (wp_sites[wp_site_only].aliases | default([])))
+            | difference(site_apply_cert_names.stdout | regex_findall('DNS:([^,\\s]+)'))
+            | length == 0
+        fail_msg: "Certificate names differ. Run the full site playbook to update them."
+      when: certbot_cloudflare_require_valid | default(true) | bool
+    - name: Read the saved DNS token path
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - >-
+            import configparser,sys;
+            config=configparser.ConfigParser(interpolation=None);
+            config.read(sys.argv[1]);
+            print(config.get('renewalparams','dns_cloudflare_credentials',fallback=''))
+          - "/etc/letsencrypt/renewal/{{ wp_site_only }}.conf"
+      register: site_apply_saved_token_path
+      changed_when: false
+      when:
+        - certbot_cloudflare_require_valid | default(true) | bool
+        - certbot_cloudflare_method | default('dns-cloudflare') == 'dns-cloudflare'
+    - name: Require the selected DNS token in renewal settings
+      ansible.builtin.assert:
+        that:
+          - >-
+            site_apply_saved_token_path.stdout | trim ==
+            (('/etc/letsencrypt/cloudflare-credentials/' ~ wp_sites[wp_site_only].cloudflare_token_ref ~ '.ini')
+              if wp_sites[wp_site_only].cloudflare_token_ref | default('') else
+              '/etc/letsencrypt/cloudflare.ini')
+        fail_msg: "DNS token selection differs. Run the full site playbook first."
+      when:
+        - certbot_cloudflare_require_valid | default(true) | bool
+        - certbot_cloudflare_method | default('dns-cloudflare') == 'dns-cloudflare'
+  roles:
+    - { role: preflight, tags: [preflight, always] }
+    - { role: site, tags: [site] }
