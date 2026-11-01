@@ -51,7 +51,7 @@
     owner: valkey
     group: valkey
     mode: "0640"
-  notify: Restart valkey
+  register: valkey_config_install
 
 - name: Install Valkey ACL users
   ansible.builtin.template:
@@ -61,7 +61,6 @@
     group: valkey
     mode: "0640"
   diff: false
-  notify: Apply valkey ACL
 
 - name: Store admin password for root
   ansible.builtin.copy:
@@ -78,8 +77,11 @@
     enabled: true
     state: started
 
-- name: Apply pending service handlers before site setup
-  ansible.builtin.meta: flush_handlers
+- name: Restart Valkey when its config or admin password changed
+  ansible.builtin.systemd_service:
+    name: "{{ valkey_service }}"
+    state: restarted
+  when: valkey_config_install is changed or not valkey_acl_reload_safe | bool
 
 - name: Install the live ACL checker
   ansible.builtin.copy:
