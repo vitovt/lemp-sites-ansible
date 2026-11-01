@@ -64,6 +64,13 @@ new snapshot or archive after exact-domain confirmation. The WordPress
 administrator password is in
 `inventories/my-server/secrets/wp-admin/<domain>.pass`.
 
+Run `./clean.sh` to remove local caches, the Python virtual environment, and
+installed Ansible dependencies. Reinstall them with the first two commands
+above. Private inventories remain. To delete all private server inventories
+and their secrets, use `./clean.sh --clear-inventories` and confirm `y`.
+`--force-danger-clear-inventories` skips this prompt only when used with
+`--clear-inventories`. The public `example-server` template remains.
+
 ## Documentation
 
 - [Deployment](Docs/DEPLOYMENT.md): server, network, certificates, and first run.
