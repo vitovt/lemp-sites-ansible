@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Load the desired Valkey ACL only when the running ACL differs."""
+
+import argparse
+import os
+from pathlib import Path
+import subprocess
+
+
+def normalized_users(text):
+    users = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if not line.startswith('user '):
+            raise ValueError('Invalid Valkey ACL line')
+        fields = line.split()
+        if len(fields) < 3 or fields[1] in users:
+            raise ValueError('Invalid or duplicate Valkey ACL user')
+        # Valkey adds sanitize-payload and omits resetkeys in ACL LIST output.
+        users[fields[1]] = tuple(sorted(set(fields[2:]) - {'sanitize-payload', 'resetkeys'}))
+    if not users:
+        raise ValueError('Valkey ACL has no users')
+    return users
+
+
+def sync(acl_file, admin_file, socket):
+    desired = normalized_users(Path(acl_file).read_text())
+    env = {**os.environ, 'REDISCLI_AUTH': Path(admin_file).read_text().strip()}
+    command = ['valkey-cli', '--raw', '-s', socket, '--user', 'admin', 'ACL']
+
+    def call(action):
+        return subprocess.run(command + [action], env=env, capture_output=True,
+                              text=True, check=True).stdout.strip()
+
+    if normalized_users(call('LIST')) == desired:
+        return False
+    if call('LOAD') != 'OK':
+        raise RuntimeError('Valkey did not confirm ACL LOAD')
+    if normalized_users(call('LIST')) != desired:
+        raise RuntimeError('Valkey ACL still differs after ACL LOAD')
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('acl_file')
+    parser.add_argument('admin_file')
+    parser.add_argument('socket')
+    args = parser.parse_args()
+    print('changed' if sync(args.acl_file, args.admin_file, args.socket) else 'ok')
+
+
+if __name__ == '__main__':
+    main()

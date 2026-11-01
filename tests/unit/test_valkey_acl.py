@@ -1,6 +1,11 @@
 """An ACL change must keep cache when the active admin key still works."""
+import importlib.machinery
+import importlib.util
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -24,3 +29,40 @@ class ValkeyACLTests(unittest.TestCase):
         self.assertIn('REDISCLI_AUTH', reload['environment'])
         self.assertTrue(reload['no_log'])
         self.assertEqual(restart['ansible.builtin.systemd_service']['state'], 'restarted')
+
+    def test_stale_live_acl_is_loaded_even_when_file_is_unchanged(self):
+        path = ROOT / 'roles/valkey/files/valkey-acl-sync'
+        loader = importlib.machinery.SourceFileLoader('valkey_acl_sync', str(path))
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        desired = ('user default off resetkeys resetchannels -@all\n'
+                   'user admin on #' + 'a' * 64 + ' ~* &* +@all\n'
+                   'user site on #' + 'b' * 64 + ' ~site:* resetchannels +@all -@admin\n')
+        active = desired.replace('resetkeys ', '').replace(' on #', ' on sanitize-payload #')
+        stale = '\n'.join(active.splitlines()[:2]) + '\n'
+        with tempfile.TemporaryDirectory() as directory:
+            acl = Path(directory) / 'users.acl'
+            admin = Path(directory) / 'admin.pass'
+            acl.write_text(desired)
+            admin.write_text('test-admin\n')
+            current = [active]
+            actions = []
+
+            def valkey_cli(argv, **kwargs):
+                self.assertEqual(kwargs['env']['REDISCLI_AUTH'], 'test-admin')
+                self.assertNotIn('test-admin', argv)
+                action = argv[-1]
+                actions.append(action)
+                if action == 'LOAD':
+                    current[0] = active
+                    output = 'OK\n'
+                else:
+                    output = current[0]
+                return subprocess.CompletedProcess(argv, 0, output, '')
+
+            with mock.patch.object(module.subprocess, 'run', side_effect=valkey_cli):
+                self.assertFalse(module.sync(acl, admin, '/test/socket'))
+                self.assertEqual(actions, ['LIST'])
+                current[0] = stale
+                self.assertTrue(module.sync(acl, admin, '/test/socket'))
+                self.assertEqual(actions[-3:], ['LIST', 'LOAD', 'LIST'])

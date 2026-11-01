@@ -77,3 +77,25 @@
     name: "{{ valkey_service }}"
     enabled: true
     state: started
+
+- name: Apply pending service handlers before site setup
+  ansible.builtin.meta: flush_handlers
+
+- name: Install the live ACL checker
+  ansible.builtin.copy:
+    src: valkey-acl-sync
+    dest: /usr/local/sbin/valkey-acl-sync
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Reconcile the live Valkey ACL with its file
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/valkey-acl-sync
+      - "{{ valkey_aclfile }}"
+      - "{{ valkey_admin_pass_file }}"
+      - "{{ valkey_socket }}"
+  register: valkey_acl_sync
+  changed_when: valkey_acl_sync.stdout | trim == 'changed'
+  no_log: true
