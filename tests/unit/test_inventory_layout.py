@@ -28,6 +28,9 @@ class InventoryLayoutTests(unittest.TestCase):
     def copy_server(self, base, name, domain):
         target = base / 'inventories' / name
         shutil.copytree(EXAMPLE, target)
+        for secret_dir in [target / 'secrets', *(target / 'secrets').rglob('*')]:
+            if secret_dir.is_dir():
+                secret_dir.chmod(0o700)
         settings = target / 'settings.yml'
         settings.write_text(settings.read_text().replace('example-server:', name + ':'))
         sites = target / 'sites.yml'
@@ -116,6 +119,10 @@ class InventoryLayoutTests(unittest.TestCase):
             lemp.ROOT = base
             lemp.INVENTORIES = base / 'inventories'
             self.assertEqual(lemp.inspect('125-wp-lnmp'), settings)
+            (target / 'secrets').chmod(0o755)
+            with self.assertRaisesRegex(ValueError, '0700'):
+                lemp.inspect('125-wp-lnmp')
+            (target / 'secrets').chmod(0o700)
             token.chmod(0o644)
             with self.assertRaisesRegex(ValueError, '0600'):
                 lemp.inspect('125-wp-lnmp')
