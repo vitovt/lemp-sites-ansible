@@ -139,7 +139,7 @@
       - >-
         import configparser,sys;
         config=configparser.ConfigParser(interpolation=None);
-        config.read(sys.argv[1]);
+        config.read_string('[certbot]\n'+open(sys.argv[1],encoding='utf-8').read());
         print(config.get('renewalparams','dns_cloudflare_credentials',fallback=''))
       - "/etc/letsencrypt/renewal/{{ item.domain }}.conf"
   loop: "{{ certbot_cloudflare_certs }}"
@@ -174,7 +174,7 @@
       - >-
         import configparser,sys;
         config=configparser.ConfigParser(interpolation=None);
-        config.read(sys.argv[1]);
+        config.read_string('[certbot]\n'+open(sys.argv[1],encoding='utf-8').read());
         print(config.get('renewalparams','dns_cloudflare_credentials',fallback=''))
       - "/etc/letsencrypt/renewal/{{ item.domain }}.conf"
   loop: "{{ certbot_cloudflare_certs }}"

@@ -79,7 +79,7 @@
           - >-
             import configparser,sys;
             config=configparser.ConfigParser(interpolation=None);
-            config.read(sys.argv[1]);
+            config.read_string('[certbot]\n'+open(sys.argv[1],encoding='utf-8').read());
             print(config.get('renewalparams','dns_cloudflare_credentials',fallback=''))
           - "/etc/letsencrypt/renewal/{{ wp_site_only }}.conf"
       register: site_apply_saved_token_path

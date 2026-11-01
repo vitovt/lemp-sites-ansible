@@ -93,17 +93,24 @@ class ACMETests(unittest.TestCase):
             self.assertEqual('/private/test-token.ini' in argv, mode == 'dns-cloudflare')
             self.assertIn('example.com,www.example.com', argv)
 
-    def test_saved_renewal_path_is_read_from_each_certificate(self):
+    def test_renewal_path_readers_accept_certbot_preamble(self):
         tasks = yaml.safe_load((ROOT / 'roles/certbot_cloudflare/tasks/certs.yml').read_text())
-        code = next(task['ansible.builtin.command']['argv'][2] for task in tasks
-                    if task['name'] == 'Read the saved DNS credential path')
+        site_apply = yaml.safe_load((ROOT / 'playbooks/site-apply.yml').read_text())[0]
+        readers = [next(task['ansible.builtin.command']['argv'][2] for task in tasks
+                        if task['name'] == name) for name in
+                   ('Read the saved DNS credential path', 'Confirm the saved DNS credential path')]
+        readers.append(next(task['ansible.builtin.command']['argv'][2] for task in site_apply['pre_tasks']
+                            if task['name'] == 'Read the saved DNS token path'))
         with tempfile.TemporaryDirectory() as directory:
             renewal = Path(directory) / 'example.com.conf'
-            renewal.write_text('[renewalparams]\nauthenticator = dns-cloudflare\n'
+            renewal.write_text('version = 4.0.0\narchive_dir = /etc/letsencrypt/archive/example.com\n'
+                               '[renewalparams]\nauthenticator = dns-cloudflare\n'
                                'dns_cloudflare_credentials = /etc/letsencrypt/cloudflare.ini\n')
-            result = subprocess.run([sys.executable, '-c', code, str(renewal)],
-                                    capture_output=True, text=True, check=True)
-            self.assertEqual(result.stdout.strip(), '/etc/letsencrypt/cloudflare.ini')
+            for code in readers:
+                with self.subTest(code=code):
+                    result = subprocess.run([sys.executable, '-c', code, str(renewal)],
+                                            capture_output=True, text=True, check=True)
+                    self.assertEqual(result.stdout.strip(), '/etc/letsencrypt/cloudflare.ini')
 
     def test_only_changed_renewal_credentials_are_reconfigured(self):
         tasks = yaml.safe_load((ROOT / 'roles/certbot_cloudflare/tasks/certs.yml').read_text())
