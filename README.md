@@ -71,10 +71,17 @@ and their secrets, use `./clean.sh --clear-inventories` and confirm `y`.
 `--force-danger-clear-inventories` skips this prompt only when used with
 `--clear-inventories`. The public `example-server` template remains.
 
+To transfer controller settings, install `7zip` and run `./archive.sh`.
+It creates a password-protected ZIP in the repository root. Copy that ZIP to
+the root of a fresh clone and extract it with `7z x ARCHIVE.zip`. Run `doctor`
+for each restored server. See [Controller archive](Docs/ARCHIVE.md) for the
+contents, password option, and optional cleanup after export.
+
 ## Documentation
 
 - [Deployment](Docs/DEPLOYMENT.md): server, network, certificates, and first run.
 - [Example inventory](Docs/EXAMPLES.md): all template fields and copy steps.
+- [Controller archive](Docs/ARCHIVE.md): encrypted transfer and recovery.
 - [Operations](Docs/OPERATIONS.md): site commands, backup, and restore.
 - [Security](Docs/SECURITY.md): access model and threat boundaries.
 - [Reference](Docs/REFERENCE.md): playbooks and roles.

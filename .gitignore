@@ -23,3 +23,6 @@ __pycache__/
 /id_ed25519_codex*
 /test-results/
 /.pytest_cache/
+# Controller archives contain passwords and private keys.
+/lemp-sites-ansible*.zip
+/.lemp-sites-ansible*.zip.partial
