@@ -1,9 +1,5 @@
 ---
-# Versions installed on every host, even without sites. Versions used by
-# wp_sites[*].php_version are added automatically (see vars/main.yml).
-php_versions:
-  - "8.3"
-php_default_version: "8.3"
+# Every site selects its own PHP branch. The target Sury index is authoritative.
 
 # Sury repository (https://packages.sury.org/php/README.txt).
 php_sury_repo_url: https://packages.sury.org/php/
@@ -30,14 +26,9 @@ php_extensions:
   - soap
   - xml
   - zip
-# Extra / skipped suffixes per version (packaging differs between branches).
-php_extensions_extra_by_version:
-  "7.4":
-    - json
-php_extensions_skip_by_version:
-  # opcache is built into PHP 8.5; Sury ships no separate package.
-  "8.5":
-    - opcache
+  - json
+# These packages must exist in Sury for a usable WordPress runtime.
+php_required_extensions: [fpm, cli, common, curl, mbstring, mysql, redis, xml, zip]
 
 # php.ini settings for FPM (conf.d/99-wp-hosting.ini). Per-site limits live in the pool.
 php_ini_fpm:

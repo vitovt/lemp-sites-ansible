@@ -22,7 +22,7 @@
       {%-   set _ = out.append({'domain': d,
               'user': v.user | default(d | regex_replace('[.-]', '_')),
               'db': v.db_name | default(d | regex_replace('[.-]', '_')),
-              'php': (v.php_version | default(php_default_version | default('8.3'))) | string}) -%}
+              'php': v.php_version}) -%}
       {%- endfor -%}
       {{ out }}
   pre_tasks:
@@ -49,6 +49,14 @@
       register: verify_grants
       changed_when: false
       failed_when: false
+
+    - name: Read deployed site branch
+      ansible.builtin.slurp:
+        src: "/srv/sites/{{ item.domain }}/conf/site.env"
+      loop: "{{ verify_sites }}"
+      loop_control:
+        label: "{{ item.domain }}"
+      register: verify_site_env
 
     - name: Read site DB users on the server
       ansible.builtin.command:
@@ -88,13 +96,20 @@
           {%-   elif not all or other -%}
             {%- set _ = out.append('FAIL ' ~ s.domain ~ ' db_grants: expected only ' ~ want ~ ', found: ' ~ (lines | join(' ; '))) -%}
           {%-   else -%}{%- set _ = out.append('PASS ' ~ s.domain ~ ' db_grants') -%}{%- endif -%}
-          {%-   set p = 'pool ' ~ s.php ~ '/' ~ s.user -%}
+          {%-   set p = 'pool ' ~ s.php ~ '/' ~ s.user ~ '-wp' -%}
           {%-   set _ = out.append(('PASS ' if p in found else 'FAIL ') ~ s.domain ~ ' fpm_pool_conf'
-                                   ~ ('' if p in found else ': missing /etc/php/' ~ s.php ~ '/fpm/pool.d/' ~ s.user ~ '.conf')) -%}
+                                   ~ ('' if p in found else ': missing /etc/php/' ~ s.php ~ '/fpm/pool.d/' ~ s.user ~ '-wp.conf')) -%}
+          {%-   set deployed = verify_site_env.results[loop.index0].content | b64decode -%}
+          {%-   set expected_socket = '/run/php/' ~ s.user ~ '-php' ~ s.php ~ '.sock' -%}
+          {%-   set good_branch = ('PHP_VERSION=' ~ s.php ~ '\n') in (deployed ~ '\n')
+                                  and ('FPM_SOCKET=' ~ expected_socket ~ '\n') in (deployed ~ '\n') -%}
+          {%-   set _ = out.append(('PASS ' if good_branch else 'FAIL ') ~ s.domain ~ ' php_branch_state') -%}
           {%-   set _ = out.append(('PASS ' if ('vhost ' ~ s.domain) in found else 'FAIL ') ~ s.domain ~ ' vhost'
                                    ~ ('' if ('vhost ' ~ s.domain) in found else ': not in sites-enabled')) -%}
           {%- endfor -%}
-          {%- set want_pools = verify_sites | map(attribute='php') | zip(verify_sites | map(attribute='user')) | map('join', '/') | list -%}
+          {%- set want_pools = verify_sites | map(attribute='php')
+                   | zip(verify_sites | map(attribute='user') | map('regex_replace', '$', '-wp'))
+                   | map('join', '/') | list -%}
           {%- set want_db = verify_sites | map(attribute='db') | map('regex_replace', '$', '@localhost') | list -%}
           {%- set domains = verify_sites | map(attribute='domain') | list -%}
           {%- set extra = (found | select('match', '^pool ') | map('regex_replace', '^pool ', '') | reject('in', want_pools)

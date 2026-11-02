@@ -14,7 +14,8 @@ wp_sites:
     # Default: derived from the domain. Must be unique on this server.
     # Changing an installed database name requires a planned migration.
     # db_name: site1
-    # Default: php_default_version in settings.yml. Supported: 8.3, 8.4, 8.5.
+    # Required: quote a major.minor branch that Sury provides for this host.
+    # Example values: "7.4", "8.4", "8.6". Test WordPress and plugins first.
     # A new branch needs a full server run before site-apply can use it.
     php_version: "8.3"
     # Default: []. Each alias needs DNS and must appear on the certificate.

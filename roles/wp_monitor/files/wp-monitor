@@ -70,9 +70,9 @@ check_host() {
 }
 
 check_site() {  # $1 = site dir
-    local dir="$1" DOMAIN SITE_USER PHP_VERSION REDIS CONTENT_MAX SITE out db_ok=1 x
-    eval "$(CONTENT_MAX=10; . "$dir/conf/site.env"; printf 'DOMAIN=%q SITE_USER=%q PHP_VERSION=%q REDIS=%q CONTENT_MAX=%q' \
-        "$DOMAIN" "$SITE_USER" "$PHP_VERSION" "${REDIS:-false}" "${CONTENT_MAX:-10}")"
+    local dir="$1" DOMAIN SITE_USER PHP_VERSION FPM_SOCKET REDIS CONTENT_MAX SITE out db_ok=1 x
+    eval "$(CONTENT_MAX=10; . "$dir/conf/site.env"; printf 'DOMAIN=%q SITE_USER=%q PHP_VERSION=%q FPM_SOCKET=%q REDIS=%q CONTENT_MAX=%q' \
+        "$DOMAIN" "$SITE_USER" "$PHP_VERSION" "${FPM_SOCKET:-/run/php/$SITE_USER.sock}" "${REDIS:-false}" "${CONTENT_MAX:-10}")"
     SITE=$DOMAIN
     local htdocs="$dir/htdocs"
 
@@ -99,7 +99,7 @@ check_site() {  # $1 = site dir
 
     if has fpm_pool; then
         # Query string bypasses the FastCGI cache, so PHP really runs in the pool.
-        local sock="/run/php/$SITE_USER.sock"
+        local sock="$FPM_SOCKET"
         out=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 \
             --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/?wp-monitor=$RANDOM$RANDOM" 2>/dev/null)
         if ! systemctl is-active --quiet "php$PHP_VERSION-fpm"; then p fpm_pool "php$PHP_VERSION-fpm not running"

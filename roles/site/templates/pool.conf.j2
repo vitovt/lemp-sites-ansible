@@ -1,9 +1,9 @@
 ; {{ ansible_managed }}
 ; PHP-FPM pool for {{ site_cfg.domain }} (PHP {{ site_cfg.php_version }})
-[{{ site_cfg.user }}]
+[{{ site_cfg.user }}-wp]
 user = {{ site_cfg.user }}-php
 group = {{ site_cfg.user }}
-listen = /run/php/{{ site_cfg.user }}.sock
+listen = /run/php/{{ site_cfg.user }}-php{{ site_cfg.php_version }}.sock
 listen.owner = www-data
 listen.group = www-data
 listen.mode = 0660

@@ -23,6 +23,23 @@ Use `scripts/lemp my-server site` after changing certificates, PHP branches,
 or shared service settings. `site-apply` rejects a Valkey toggle and a
 certificate name or DNS token change until the required migration or full
 certificate run is complete.
+
+To change PHP, set the site's required, quoted `php_version` to a `major.minor`
+branch such as `"8.4"`. Run `scripts/lemp my-server site`. The full playbook
+checks the target server's Sury package index and installs the required PHP
+packages. It creates and tests a new FPM pool before Nginx uses its socket.
+It removes the old pool after a local WordPress request succeeds. It keeps an
+old FPM service while another site uses it. Run `scripts/lemp my-server verify`
+after the change. If the new branch is already installed and has the managed
+PHP configuration, `site-apply example.com` can make the same switch for one
+site. A missing branch makes `site-apply` stop before it changes the site.
+Package availability does not confirm plugin support. Test the new branch on
+a staging site before a production change.
+If a switch stops after the new route works, the site keeps
+`conf/php-switch.json`. Rerun the same requested version to finish old pool
+cleanup. Do not change the requested version while this file exists. If the
+retry fails, inspect the Nginx route, FPM pools, and service logs before manual
+repair. Keep the file until the site serves the requested branch.
 A failed site deployment keeps the requested inventory entry for recovery.
 Correct the error and run convergence again. Do not assume that a failed play
 made no changes to the target.

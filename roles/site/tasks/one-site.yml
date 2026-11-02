@@ -7,7 +7,7 @@
            'domain': site_item.key,
            'user': (site_item.value | default({}, true)).user | default(site_item.key | regex_replace('[.-]', '_')),
            'db_name': (site_item.value | default({}, true)).db_name | default(site_item.key | regex_replace('[.-]', '_')),
-           'php_version': ((site_item.value | default({}, true)).php_version | default(php_default_version)) | string,
+           'php_version': site_item.value.php_version,
            'path': site_root ~ '/' ~ site_item.key }) }}
 
 - name: Check site user name ({{ site_cfg.domain }})
@@ -26,16 +26,12 @@
   ansible.builtin.include_tasks: users.yml
 - name: Directories ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: dirs.yml
-- name: Site facts file ({{ site_cfg.domain }})
-  ansible.builtin.include_tasks: siteenv.yml
 - name: Database ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: db.yml
-- name: PHP-FPM pool ({{ site_cfg.domain }})
-  ansible.builtin.include_tasks: pool.yml
 - name: WordPress config ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: wpconfig.yml
-- name: Nginx vhost ({{ site_cfg.domain }})
-  ansible.builtin.include_tasks: vhost.yml
+- name: PHP and Nginx route ({{ site_cfg.domain }})
+  ansible.builtin.include_tasks: switch-php.yml
 - name: Local name for cache purge ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: hosts.yml
 - name: Cron and logrotate ({{ site_cfg.domain }})

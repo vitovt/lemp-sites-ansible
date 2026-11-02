@@ -26,7 +26,7 @@ p.add_argument('--key', type=Path, required=True)
 p.add_argument('--disposable', action='store_true', required=True)
 p.add_argument('--reset', action='store_true')
 p.add_argument('--work', type=Path)
-p.add_argument('--phase', choices=['deploy', 'all', 'lifecycle'], default='all')
+p.add_argument('--phase', choices=['deploy', 'all', 'transitions', 'cutover', 'lifecycle', 'resume'], default='all')
 a = p.parse_args()
 work = a.work.resolve() if a.work else Path(tempfile.mkdtemp(prefix='lemp-integration-'))
 if not re.fullmatch(r'/tmp/lemp-integration-[a-zA-Z0-9_-]+', str(work)):
@@ -75,7 +75,7 @@ settings = dict(ansible_host=a.host, ansible_port=a.port, ansible_user=a.user,
     certbot_cloudflare_enabled=False, backup_require_mount=False, certbot_cloudflare_require_valid=False,
     backup_restic_paths=['/srv/sites', '/etc/nginx', '/etc/php', '/etc/mysql',
                         '/etc/ssl/certs/ssl-cert-snakeoil.pem', '/etc/ssl/private/ssl-cert-snakeoil.key'],
-    mariadb_buffer_pool_size='256M', maintenance_auto_update=False, php_versions=['8.4'], php_default_version='8.4',
+    mariadb_buffer_pool_size='256M', maintenance_auto_update=False,
     )
 site_list = {'test1.example': {'php_version':'8.4', 'wp_install':True},
              'test2.example': {'php_version':'8.3', 'wp_install':True}}
@@ -109,14 +109,47 @@ def play(name, log, *args, expect_failure=False):
                 return
             raise SystemExit(f'Unexpected status {rc}: {name}; see {work / log}')
 
+
+def play_during_cutover_probe(name, log, *args):
+    stop = f'/tmp/lemp-cutover-{token}.stop'
+    remote(privileged('rm -f ' + shlex.quote(stop)))
+    probe = subprocess.Popen(ssh + [privileged(f'python3 - {token} test1.example')],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
+    probe.stdin.write((ROOT / 'tests/integration/php-cutover-probe.py').read_bytes())
+    probe.stdin.close()
+    probe.stdin = None
+    try:
+        play(name, log, *args)
+    finally:
+        remote(privileged('touch ' + shlex.quote(stop)))
+        output, errors = probe.communicate(timeout=30)
+    if probe.returncode:
+        raise SystemExit(f'Cutover probe failed: {errors.decode()[-500:]}')
+    result = json.loads(output.decode())
+    if result['count'] < 5 or result['bad']:
+        raise SystemExit(f'HTTP errors during PHP switch: {result}')
+    print(f"PASS {result['count']} uncached HTTP requests during PHP switch", flush=True)
+
+
+def finish_interrupted_install(extra_sites, overrides):
+    extra_sites['test3.example']['wp_install'] = True
+    overrides.write_text(json.dumps({'wp_sites': extra_sites}))
+    play('site', 'resume-install.log', '-e', '@' + str(overrides), '-e', 'wp_site_only=test3.example')
+    remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/install-state.py ' + token + ' open'))
+    play('site-repair-core', 'repair-report.log', '-e', 'repair_site=test3.example')
+    play('site-remove', 'remove.log', '-e', 'wp_site_only=test3.example', '-e', 'confirm=test3.example')
+    play('verify', 'final-verify.log')
+
 print(f'Isolated results and generated secrets: {work}', flush=True)
-if a.phase != 'lifecycle':
-    play('site', 'deploy.log')
-    play('site', 'idempotence.log')
-    if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'idempotence.log').read_text()):
-        raise SystemExit('FAIL second convergence changed the target')
+if a.phase in ('all', 'deploy', 'transitions'):
+    if a.phase != 'transitions':
+        play('site', 'deploy.log')
+        play('site', 'idempotence.log')
+        if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'idempotence.log').read_text()):
+            raise SystemExit('FAIL second convergence changed the target')
     # A selected site update must not rewrite another site's pool or vhost.
-    other = ['/etc/php/8.3/fpm/pool.d/test2_example.conf',
+    other = ['/etc/php/8.3/fpm/pool.d/test2_example-wp.conf',
              '/etc/nginx/sites-available/test2.example.conf', '/etc/valkey/users.acl']
     checksum = f'/tmp/lemp-site-apply-{token}.sha256'
     remote(privileged('sh -c ' + shlex.quote('sha256sum ' + ' '.join(map(shlex.quote, other)) + ' > ' + shlex.quote(checksum))))
@@ -131,9 +164,83 @@ if a.phase != 'lifecycle':
             raise SystemExit('FAIL repeated site-apply changed resources')
         remote(privileged('sha256sum -c ' + shlex.quote(checksum)))
         play('site-apply', 'site-apply-restore.log', '-e', 'wp_site_only=test1.example')
+        # An unavailable branch must fail before changing the deployed route.
+        missing = dict(site_list)
+        missing['test1.example'] = {**missing['test1.example'], 'php_version': '99.99'}
+        changed_path.write_text(json.dumps({'wp_sites': missing}))
+        target_files = ['/etc/php/8.4/fpm/pool.d/test1_example-wp.conf',
+                        '/etc/nginx/sites-available/test1.example.conf',
+                        '/srv/sites/test1.example/conf/site.env']
+        target_checksum = f'/tmp/lemp-php-branch-{token}.sha256'
+        remote(privileged('sh -c ' + shlex.quote('sha256sum ' + ' '.join(map(shlex.quote, target_files)) +
+                                                   ' > ' + shlex.quote(target_checksum))))
+        try:
+            play('site-apply', 'missing-php.log', '-e', '@' + str(changed_path),
+                 '-e', 'wp_site_only=test1.example', expect_failure=True)
+            if 'needs PHP 99.99 installed and managed' not in (work / 'missing-php.log').read_text():
+                raise SystemExit('FAIL missing PHP branch did not produce a clear error')
+            remote(privileged('sha256sum -c ' + shlex.quote(target_checksum)))
+            # An FPM validation failure must restore the old pool and route.
+            bad = dict(site_list)
+            bad['test1.example'] = {**bad['test1.example'], 'pm_idle_timeout': 'invalid'}
+            changed_path.write_text(json.dumps({'wp_sites': bad}))
+            play('site-apply', 'invalid-fpm.log', '-e', '@' + str(changed_path),
+                 '-e', 'wp_site_only=test1.example', expect_failure=True)
+            if 'php-fpm8.4 failed' not in (work / 'invalid-fpm.log').read_text():
+                raise SystemExit('FAIL invalid FPM configuration did not reach the rollback path')
+            remote(privileged('sha256sum -c ' + shlex.quote(target_checksum)))
+            remote(privileged("curl --noproxy '*' -skf --max-time 20 -o /dev/null "
+                              "https://test1.example/wp-login.php"))
+        finally:
+            remote(privileged('rm -f ' + shlex.quote(target_checksum)))
+        # Move to a branch that is already installed for the peer site.
+        changed_sites = dict(site_list)
+        changed_sites['test1.example'] = {**changed_sites['test1.example'], 'php_version': '8.3'}
+        changed_path.write_text(json.dumps({'wp_sites': changed_sites}))
+        play_during_cutover_probe('site-apply', 'php-84-to-83.log',
+                                  '-e', '@' + str(changed_path), '-e', 'wp_site_only=test1.example')
+        remote(privileged('sh -c ' + shlex.quote(
+            'test -f /etc/php/8.3/fpm/pool.d/test1_example-wp.conf && '
+            'test ! -e /etc/php/8.4/fpm/pool.d/test1_example-wp.conf && '
+            'test ! -S /run/php/test1_example-php8.4.sock && '
+            "grep -qx 'PHP_VERSION=8.3' /srv/sites/test1.example/conf/site.env")))
+        remote(privileged('sha256sum -c ' + shlex.quote(checksum)))
+        remote(privileged("curl --noproxy '*' -skf --max-time 20 -o /dev/null "
+                          "https://test2.example/wp-login.php"))
+        play('site-apply', 'php-83-to-84.log', '-e', 'wp_site_only=test1.example')
+        play('site-apply', 'php-repeat.log', '-e', 'wp_site_only=test1.example')
+        if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'php-repeat.log').read_text()):
+            raise SystemExit('FAIL repeated PHP branch change was not idempotent')
+        remote(privileged('sha256sum -c ' + shlex.quote(checksum)))
     finally:
         remote(privileged('rm -f ' + shlex.quote(checksum)))
+    # The full playbook must install a new Sury branch before moving the site.
+    higher = dict(site_list)
+    higher['test1.example'] = {**higher['test1.example'], 'php_version': '8.5'}
+    higher_path = work / 'higher-php-sites.json'
+    higher_path.write_text(json.dumps({'wp_sites': higher}))
+    play('site', 'php-install-85.log', '-e', '@' + str(higher_path), '-e', 'wp_site_only=test1.example')
+    remote(privileged('sh -c ' + shlex.quote(
+        'test -f /etc/php/8.5/fpm/pool.d/test1_example-wp.conf && '
+        'test ! -e /etc/php/8.4/fpm/pool.d/test1_example-wp.conf && '
+        'test ! -S /run/php/test1_example-php8.4.sock && '
+        "grep -qx 'PHP_VERSION=8.5' /srv/sites/test1.example/conf/site.env")))
+    remote(privileged("curl --noproxy '*' -skf --max-time 20 -o /dev/null "
+                      "https://test2.example/wp-login.php"))
+    play('site-apply', 'php-85-to-84.log', '-e', 'wp_site_only=test1.example')
+    play('site', 'php-full-repeat.log')
+    if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'php-full-repeat.log').read_text()):
+        raise SystemExit('FAIL full playbook after PHP branch restoration changed resources')
     play('doctor', 'doctor.log')
+if a.phase == 'cutover':
+    cutover = dict(site_list)
+    cutover['test1.example'] = {**cutover['test1.example'], 'php_version': '8.3'}
+    cutover_path = work / 'cutover-sites.json'
+    cutover_path.write_text(json.dumps({'wp_sites': cutover}))
+    play_during_cutover_probe('site-apply', 'cutover.log',
+                              '-e', '@' + str(cutover_path), '-e', 'wp_site_only=test1.example')
+    play('site-apply', 'cutover-restore.log', '-e', 'wp_site_only=test1.example')
+    play('verify', 'cutover-verify.log')
 if a.phase in ['all', 'lifecycle']:
     archive = work / 'probes.tar'
     with tarfile.open(archive, 'w') as tar:
@@ -173,14 +280,14 @@ if a.phase in ['all', 'lifecycle']:
     (project / 'playbooks/interrupted-install.yml').write_text(yaml.safe_dump(partial, sort_keys=False))
     play('interrupted-install', 'interrupted-install.log', expect_failure=True)
     remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/install-state.py ' + token + ' closed'))
-    extra_sites['test3.example']['wp_install'] = True
-    overrides.write_text(json.dumps({'wp_sites':extra_sites}))
-    play('site', 'resume-install.log', '-e', '@' + str(overrides), '-e', 'wp_site_only=test3.example')
-    remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/install-state.py ' + token + ' open'))
-    play('site-repair-core', 'repair-report.log', '-e', 'repair_site=test3.example')
-    play('site-remove', 'remove.log', '-e', 'wp_site_only=test3.example', '-e', 'confirm=test3.example')
-    play('verify', 'final-verify.log')
+    finish_interrupted_install(extra_sites, overrides)
     if a.public_ipv6:
         subprocess.run(['python3', str(project / 'tests/probes/public-ipv6.py'), '--work', str(work),
                         '--address', str(a.public_ipv6), '--disposable'], env=env, check=True)
+if a.phase == 'resume':
+    extra_sites = dict(site_list)
+    extra_sites['test3.example'] = {'user': 'test3_example', 'db_name': 'test3_example',
+                                     'php_version': '8.4', 'wp_install': False}
+    overrides = work / 'extra-sites.json'
+    finish_interrupted_install(extra_sites, overrides)
 print('PASS isolated integration run', flush=True)

@@ -63,6 +63,10 @@ it starts a full server convergence. Use `scripts/site info`, `clone`, and
 new snapshot or archive after exact-domain confirmation. The WordPress
 administrator password is in
 `inventories/my-server/secrets/wp-admin/<domain>.pass`.
+Every site must set a quoted `php_version`. To move a site to a new PHP branch,
+edit that value and run `scripts/lemp my-server site`. The full playbook checks
+the server's Sury package index and installs the requested branch. Use
+`site-apply <domain>` only when the new branch is already installed and managed.
 
 Run `./clean.sh` to remove local caches, the Python virtual environment, and
 installed Ansible dependencies. Reinstall them with the first two commands
@@ -83,6 +87,7 @@ contents, password option, and optional cleanup after export.
 - [Example inventory](Docs/EXAMPLES.md): all template fields and copy steps.
 - [Controller archive](Docs/ARCHIVE.md): encrypted transfer and recovery.
 - [Operations](Docs/OPERATIONS.md): site commands, backup, and restore.
+- [PHP versions](Docs/PHP_VERSION_SWITCH_SPEC.md): branch changes and recovery.
 - [Security](Docs/SECURITY.md): access model and threat boundaries.
 - [Reference](Docs/REFERENCE.md): playbooks and roles.
 - [Testing](Docs/TESTING.md): local and isolated integration tests.

@@ -254,3 +254,45 @@ operation. The playbook selected the no-backup branch, and the command's unit
 test proves that branch does not call the snapshot function. Old snapshots, if
 present, were not deleted. A failed removal after partial changes still needs
 manual recovery before another convergence run.
+
+## PHP branch switching on 2026-11-02
+
+The controller passed 93 unit tests, syntax checks for eight playbooks, and
+the pinned offline `ansible-lint` production profile with no findings. Unit
+tests cover required quoted `php_version` values, dynamic Sury package
+selection, incomplete `site-apply` branches, rollback before and after the
+Nginx switch, retry after failed old-service cleanup, stopped FPM recovery,
+and unsafe path rejection.
+
+The disposable Debian 13 QEMU VM used a generated inventory and test secrets
+under `/tmp/lemp-integration-*`. The runner did not copy private server
+inventories or production secrets. Sites started on PHP 8.4 and 8.3. The full
+playbook and its repeat passed; the repeat reported `changed=0`. An
+uninstalled PHP 99.99 branch made `site-apply` stop with `changed=0` and kept
+the active pool, vhost, and site facts unchanged. An invalid FPM setting
+failed validation and restored the old pool and route. This run found and
+fixed a race between `systemctl reload` and creation of the new FPM socket.
+
+The VM completed 8.4 to 8.3 to 8.4 with `site-apply`. The full playbook then
+installed PHP 8.5 from Sury and moved the first site to it. `site-apply`
+returned the site to 8.4. Checks confirmed the requested pool and socket,
+removal of the old pool and socket, stable checksums for the peer site, and a
+working peer HTTP response. The final full repeat reported `changed=0`.
+During a separate 8.4 to 8.3 switch, 164 uncached local HTTP requests returned
+200 with no errors. The site was then restored to 8.4, and read-only
+verification reported `33 PASS, 0 FAIL`.
+
+The lifecycle run passed all 10 service and application scenarios, including
+site isolation, backup and restore, and clone rollback. Its interrupted
+WordPress installation exposed a false HTTP 302 health failure after core
+download. After the fix, a resumed run completed the installation, repair
+check, archived removal of the third site, and final `verify` with
+`33 PASS, 0 FAIL`. The lifecycle proof used a resume after this deliberate
+failure; it was not one uninterrupted run.
+
+PHP branches other than 8.3, 8.4, and 8.5 were checked for schema acceptance
+only. The tests do not prove compatibility of WordPress plugins or themes with
+another branch. This change was not deployed to the LXC host. Public IPv6,
+Cloudflare DNS-01 renewal, HTTP-01, the parent proxy, Telegram delivery, a
+mounted backup volume, and full-host disaster recovery remain outside this
+PHP validation run.

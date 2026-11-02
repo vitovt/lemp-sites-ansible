@@ -1,0 +1,19 @@
+---
+- name: Check for Let's Encrypt certificate
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ site_cfg.domain }}/fullchain.pem"
+  register: site_le_cert
+
+- name: Select certificate for the site
+  ansible.builtin.set_fact:
+    site_vhost_le_cert: "{{ site_le_cert.stat.exists }}"
+
+- name: Stage, switch, and check the PHP route
+  php_site_switch:
+    domain: "{{ site_cfg.domain }}"
+    user: "{{ site_cfg.user }}"
+    version: "{{ site_cfg.php_version }}"
+    site: "{{ site_cfg.path }}"
+    pool_content: "{{ lookup('ansible.builtin.template', 'pool.conf.j2') }}"
+    vhost_content: "{{ lookup('ansible.builtin.template', 'vhost.conf.j2') }}"
+    env_content: "{{ lookup('ansible.builtin.template', 'site.env.j2') }}"

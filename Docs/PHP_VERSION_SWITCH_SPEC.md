@@ -1,6 +1,7 @@
 # PHP Version Selection and Safe Site Switching
 
-Status: implementation specification. This document does not change server behavior.
+Status: implemented. See [Validation](VALIDATION.md) for observed test results
+and remaining limits.
 
 ## Goal
 
@@ -14,9 +15,10 @@ An interrupted run can continue or restore the previous working branch.
 - Every `wp_sites` entry in `sites.yml` MUST contain `php_version` as a quoted
   string. An empty site list is valid. A missing, null, empty, or unsupported
   value MUST fail before any host change.
-- The supported branch list MUST have one repository-owned source. The current
-  policy accepts `8.3`, `8.4`, and `8.5`. This list is a validation policy. It
-  does not promise that a package is available from Sury at run time.
+- Do not keep a fixed branch allow-list in code. Accept a quoted `major.minor`
+  value. Check its required packages in the target host's Sury package index
+  before installation. Package availability does not prove that WordPress or
+  a plugin supports the branch.
 - Remove `php_default_version` and `php_versions` from server settings and role
   defaults. Do not use an implicit `8.3` in roles, playbooks, verification, or
   `scripts/site`. Reject the retired server keys with a clear migration error.

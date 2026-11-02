@@ -2,23 +2,67 @@
 - name: Add Sury PHP repository
   ansible.builtin.import_tasks: repo.yml
 
-- name: Install PHP packages for all versions
+- name: Refresh the Sury package index
   ansible.builtin.apt:
-    name: >-
-      {{ (php_extensions + php_extensions_extra_by_version.get(item, []))
-         | difference(php_extensions_skip_by_version.get(item, []))
-         | map('regex_replace', '^', 'php' ~ item ~ '-') | list }}
+    update_cache: true
+    cache_valid_time: 3600
+  when: php_site_versions | length > 0
+
+- name: Check PHP package availability in Sury
+  ansible.builtin.command:
+    argv: >-
+      {{ ['apt-cache', 'madison']
+         + (php_site_versions | product(php_extensions)
+            | map('join', '-') | map('regex_replace', '^', 'php') | list) }}
+  register: php_sury_candidates
+  changed_when: false
+  when: php_site_versions | length > 0
+
+- name: Select PHP packages from Sury
+  ansible.builtin.set_fact:
+    php_sury_available_packages: >-
+      {%- set out = [] -%}
+      {%- set source = php_sury_repo_url | regex_replace('/+$', '') -%}
+      {%- for row in php_sury_candidates.stdout_lines | default([]) -%}
+      {%-   set cols = row.split('|') -%}
+      {%-   if cols | length >= 3 and source in cols[2] and (cols[0] | trim) not in out -%}
+      {%-     set _ = out.append(cols[0] | trim) -%}
+      {%-   endif -%}
+      {%- endfor -%}
+      {{ out }}
+    php_sury_package_versions: >-
+      {%- set out = [] -%}
+      {%- set names = [] -%}
+      {%- set source = php_sury_repo_url | regex_replace('/+$', '') -%}
+      {%- for row in php_sury_candidates.stdout_lines | default([]) -%}
+      {%-   set cols = row.split('|') -%}
+      {%-   if cols | length >= 3 and source in cols[2] and (cols[0] | trim) not in names -%}
+      {%-     set _ = names.append(cols[0] | trim) -%}
+      {%-     set _ = out.append((cols[0] | trim) ~ '=' ~ (cols[1] | trim)) -%}
+      {%-   endif -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Require the WordPress PHP packages in Sury
+  ansible.builtin.assert:
+    that:
+      - "('php' ~ item.0 ~ '-' ~ item.1) in php_sury_available_packages"
+    fail_msg: "Sury has no php{{ item.0 }}-{{ item.1 }} package for this host. Select another PHP branch."
+  loop: "{{ php_site_versions | product(php_required_extensions) | list }}"
+
+- name: Install available PHP packages and FastCGI probe tool
+  ansible.builtin.apt:
+    name: "{{ php_sury_package_versions + ['libfcgi-bin'] }}"
     state: present
-  loop: "{{ php_versions_all }}"
-  loop_control:
-    label: "php{{ item }}"
+    allow_downgrade: true
+  when: php_site_versions | length > 0
 
 # Debian ships a "www" pool per version. We use one pool per site instead.
 - name: Remove default www pools
   ansible.builtin.file:
     path: "/etc/php/{{ item }}/fpm/pool.d/www.conf"
     state: absent
-  loop: "{{ php_versions_all }}"
+  loop: "{{ php_site_versions }}"
   notify: Reload php-fpm
 
 - name: Install php.ini tuning (FPM)
@@ -30,7 +74,7 @@
     mode: "0644"
   vars:
     php_ini_settings: "{{ php_ini_fpm | combine(php_ini_fpm_by_version.get(item, {})) }}"
-  loop: "{{ php_versions_all }}"
+  loop: "{{ php_site_versions }}"
   notify: Reload php-fpm
 
 - name: Install php.ini tuning (CLI)
@@ -42,10 +86,7 @@
     mode: "0644"
   vars:
     php_ini_settings: "{{ php_ini_cli }}"
-  loop: "{{ php_versions_all }}"
-
-- name: Manage FPM services
-  ansible.builtin.import_tasks: services.yml
+  loop: "{{ php_site_versions }}"
 
 - name: Install wp-cli
   ansible.builtin.import_tasks: wpcli.yml

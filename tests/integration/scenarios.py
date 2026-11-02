@@ -98,7 +98,7 @@ class Scenarios(unittest.TestCase):
             self.assertNotIn('200', response.splitlines()[0])
         finally:
             link.unlink()
-        socket_probe = 'import socket; s=socket.socket(socket.AF_UNIX); s.connect(' + repr('/run/php/' + B['SITE_USER'] + '.sock') + ')'
+        socket_probe = 'import socket; s=socket.socket(socket.AF_UNIX); s.connect(' + repr(B['FPM_SOCKET']) + ')'
         self.assertNotEqual(run('runuser', '-u', runtime, '--', 'python3', '-c', socket_probe, check=False).returncode, 0)
         script = '''$r=new Redis(); $r->connect(WP_REDIS_PATH); $r->auth(WP_REDIS_PASSWORD);
         foreach ([['get','test2_example:foreign'], ['flushAll'], ['config','GET','*']] as $args) {

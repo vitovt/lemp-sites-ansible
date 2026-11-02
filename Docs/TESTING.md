@@ -68,10 +68,19 @@ If collections are installed next to the active virtual environment under
 `<venv>/collections`, the runner uses that directory. Otherwise the runner copies the project collections directory into the test
 work directory. Install collections as shown in Deployment first. Do not pass production application configuration to tests.
 
-`--phase deploy` runs deployment, repeat convergence, and doctor only.
+`--phase deploy` runs deployment, repeat convergence, site and PHP transition
+tests, and doctor.
+`--phase transitions` resumes only the site update and PHP switch tests on
+the same marked fixture after a deployment. Keep its work directory and test
+identity. This phase is useful after a test assertion fails.
+`--phase cutover` samples uncached HTTP responses while one site moves from
+PHP 8.4 to 8.3, then restores 8.4. Use it with an existing marked fixture.
 `--phase lifecycle` runs the service, application, backup, restore, clone, and
 removal checks on an existing marked fixture. It does not repeat deployment. Use the
 same work directory, identity, and explicit target as the earlier run.
+`--phase resume` finishes the interrupted-install case on the same marked
+fixture after a failure in that case. It checks repair, removal, and final
+verification.
 The full phase adds HTTP, IPv6 loopback and an unrouted network namespace, cache, permissions, Unix socket and Valkey
 isolation, SMTP rejection, integrity alerts, exact-schema restore, hostile SQL,
 clone confirmation, clone rollback, staging, and final health checks. It also tests lost secrets, a resumed installation,
@@ -82,7 +91,10 @@ The legacy `tests/verify.sh` requires the same disposable marker token.
 
 The run also changes one site with `site-apply`, repeats that command, and
 checks that another site's pool and vhost plus the shared Valkey ACL did not
-change. The repeated command must report `changed=0`.
+change. It rejects a missing PHP branch without changing the deployed route.
+It switches a site between installed PHP branches, installs another Sury branch
+through the full playbook, and checks rollback to the original branch. The
+repeated command must report `changed=0`.
 
 Repeat convergence must report `changed=0`, `unreachable=0`, and `failed=0`.
 No failed or skipped real-environment test is proof of a working feature.

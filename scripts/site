@@ -58,8 +58,8 @@ def validate(domain, user, php, sites):
         raise ValueError('Invalid domain')
     if not NAME.fullmatch(user) or len(user) > 28 or user in RESERVED:
         raise ValueError('Invalid or reserved site user')
-    if php not in ['8.3', '8.4', '8.5']:
-        raise ValueError('Use a supported PHP branch: 8.3, 8.4, 8.5')
+    if not re.fullmatch(r'[1-9][0-9]*\.[0-9]+', php):
+        raise ValueError('Use a quoted major.minor PHP branch, for example 8.4')
     for d, cfg in sites.items():
         cfg = cfg or {}
         if d == domain or domain in cfg.get('aliases', []):
@@ -139,7 +139,12 @@ def main():
                 parser.error('Aborted')
         rest = args.extra[1:] if args.command == 'clone' else args.extra
         user = rest[0] if rest and rest[0] != '-' else target.replace('.', '_').replace('-', '_')
-        php = rest[1] if len(rest) > 1 else str((sites.get(args.domain) or {}).get('php_version', '8.3'))
+        if len(rest) > 1:
+            php = rest[1]
+        elif args.command == 'clone':
+            php = str(sites[args.domain]['php_version'])
+        else:
+            parser.error('add requires <user> <php-version>')
         if target not in sites:
             validate(target, user, php, sites)
             sites[target] = dict(user=user, db_name=user, php_version=php, wp_install=args.install_wp if args.command == 'add' else False,

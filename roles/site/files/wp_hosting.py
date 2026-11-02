@@ -75,7 +75,7 @@ def site(domain):
     for key in ['SITE_USER', 'DB_NAME']:
         if not NAME.fullmatch(values[key]) or values[key] in RESERVED:
             raise ValueError(f'Unsafe {key}')
-    if values['DOMAIN'] != domain or not re.fullmatch(r'8\.[0-9]', values['PHP_VERSION']):
+    if values['DOMAIN'] != domain or not re.fullmatch(r'[1-9][0-9]*\.[0-9]+', values['PHP_VERSION']):
         raise ValueError('Invalid site facts')
     values['base'] = base
     values['domain'] = domain
@@ -421,7 +421,9 @@ def remove_site(s, db, archive_dir, *, without_backup=False):
             (Path('/etc/nginx') / folder / (s['domain'] + '.conf')).unlink(missing_ok=True)
         run(['nginx', '-t', '-q'])
         run(['systemctl', 'reload', 'nginx'])
-        for pool in Path('/etc/php').glob('*/fpm/pool.d/' + s['SITE_USER'] + '.conf'):
+        pools = list(Path('/etc/php').glob('*/fpm/pool.d/' + s['SITE_USER'] + '.conf'))
+        pools += list(Path('/etc/php').glob('*/fpm/pool.d/' + s['SITE_USER'] + '-wp.conf'))
+        for pool in pools:
             version = pool.parents[2].name
             pool.unlink()
             if list(pool.parent.glob('*.conf')):

@@ -25,13 +25,12 @@ class ACMETests(unittest.TestCase):
     def test_site_token_reference_is_validated_before_use(self):
         tasks = yaml.safe_load((ROOT / 'roles/preflight/tasks/main.yml').read_text())[:2]
         keys = yaml.safe_load((ROOT / 'roles/preflight/defaults/main.yml').read_text())['preflight_site_keys']
-        settings = dict(preflight_site_keys=keys, php_default_version='8.3',
-                        php_supported_versions=['8.3'], site_user_max_len=28)
+        settings = dict(preflight_site_keys=keys, site_user_max_len=28)
         valid = self.run_ansible_tasks(tasks, {**settings, 'wp_sites': {
-            'example.com': {'cloudflare_token_ref': 'customer_b'}}})
+            'example.com': {'php_version': '8.4', 'cloudflare_token_ref': 'customer_b'}}})
         self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
         invalid = self.run_ansible_tasks(tasks, {**settings, 'wp_sites': {
-            'example.com': {'cloudflare_token_ref': '../outside'}}})
+            'example.com': {'php_version': '8.4', 'cloudflare_token_ref': '../outside'}}})
         self.assertNotEqual(invalid.returncode, 0)
         self.assertIn('cloudflare_token_ref must be a simple name', invalid.stdout)
 

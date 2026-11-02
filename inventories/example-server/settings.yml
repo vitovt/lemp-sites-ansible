@@ -82,15 +82,10 @@ all:
           # nginx_fastcgi_cache_inactive: 60m
           # nginx_fastcgi_cache_valid: 10m
 
-          # Default PHP branch and branches installed even with no site using
-          # them. The site list can add a branch during a full server run.
-          # Supported site branches: "8.3", "8.4", "8.5".
-          php_versions: ["8.3"]
-          php_default_version: "8.3"
-          # Advanced extension lists and INI maps are in role defaults. Override
-          # only after testing each branch and the required WordPress plugins.
-          # php_extensions_extra_by_version: {"8.4": [php8.4-imagick]}
-          # php_extensions_skip_by_version: {"8.4": []}
+          # Each site selects an explicit PHP branch in sites.yml. A full site
+          # run installs available packages from Sury for the requested branches.
+          # Test WordPress and plugins before changing a live site's branch.
+          # Advanced INI maps are in role defaults.
           # php_ini_fpm_by_version: {"8.4": {memory_limit: 256M}}
           # Do not change repository URLs or key fingerprints for routine use.
 

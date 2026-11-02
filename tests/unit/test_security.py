@@ -13,13 +13,32 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class InventoryTests(unittest.TestCase):
-    def test_reserved_names_and_unsupported_php(self):
+    def test_php_branch_is_required_but_not_hard_coded(self):
         tasks = yaml.safe_load((ROOT / 'roles/preflight/tasks/main.yml').read_text())
         defaults = yaml.safe_load((ROOT / 'roles/preflight/defaults/main.yml').read_text())
-        for settings in ({'user': 'root'}, {'user': 'admin'}, {'db_name': 'mysql'}, {'php_version': '7.4'}):
+        for branch in ('7.4', '8.6', '10.0'):
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as tmp:
+                play = [{'hosts': 'localhost', 'gather_facts': False,
+                         'vars': {**defaults, 'wp_sites': {'a.example': {'php_version': branch}}},
+                         'tasks': [tasks[0], {'ansible.builtin.assert':
+                             {'that': 'preflight_site_errors | length == 0'}}]}]
+                path = Path(tmp) / 'test.yml'
+                path.write_text(yaml.safe_dump(play))
+                result = subprocess.run(['ansible-playbook', '-i', 'localhost,', str(path)],
+                    env={**os.environ, 'ANSIBLE_LOCAL_TEMP': tmp, 'ANSIBLE_NOCOWS': '1'},
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_reserved_names_and_invalid_php(self):
+        tasks = yaml.safe_load((ROOT / 'roles/preflight/tasks/main.yml').read_text())
+        defaults = yaml.safe_load((ROOT / 'roles/preflight/defaults/main.yml').read_text())
+        for settings in ({'user': 'root', 'php_version': '8.4'},
+                         {'user': 'admin', 'php_version': '8.4'},
+                         {'db_name': 'mysql', 'php_version': '8.4'},
+                         {'php_version': '8.4-evil'}, {'php_version': 8.4}, {}):
             with self.subTest(settings=settings), tempfile.TemporaryDirectory() as tmp:
                 play = [{'hosts': 'localhost', 'gather_facts': False, 'vars': {
-                    **defaults, 'php_default_version': '8.3', 'wp_sites': {'a.example': settings}},
+                    **defaults, 'wp_sites': {'a.example': settings}},
                     'tasks': [tasks[0], {'ansible.builtin.assert': {'that': 'preflight_site_errors | length > 0'}}]}]
                 path = Path(tmp) / 'test.yml'
                 path.write_text(yaml.safe_dump(play))

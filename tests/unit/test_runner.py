@@ -33,10 +33,32 @@ class RunnerTests(unittest.TestCase):
                 binary.mkdir()
                 log = base / 'ssh-arguments'
                 ssh = binary / 'ssh'
-                ssh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> ' + str(log) + '\n')
+                ssh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> ' + str(log) + '''
+case "$*" in
+    *"python3 - "*) cat >/dev/null; echo '{"count":10,"bad":[]}' ;;
+esac
+''')
                 ssh.chmod(0o755)
                 playbook = binary / 'ansible-playbook'
-                playbook.write_text('#!/bin/sh\necho "wptest : ok=1 changed=0 unreachable=0 failed=0"\n')
+                playbook.write_text('''#!/bin/sh
+for arg do
+    case "$arg" in
+        @*) if grep -q '"99.99"' "${arg#@}"; then
+                echo 'test1.example needs PHP 99.99 installed and managed'
+                exit 2
+            fi ;;
+    esac
+done
+for arg do
+    case "$arg" in
+        @*) if grep -q '"invalid"' "${arg#@}"; then
+                echo 'php-fpm8.4 failed'
+                exit 2
+            fi ;;
+    esac
+done
+echo "wptest : ok=1 changed=0 unreachable=0 failed=0"
+''')
                 playbook.chmod(0o755)
                 key = base / 'key'
                 key.touch()

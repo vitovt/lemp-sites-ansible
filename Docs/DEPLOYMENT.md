@@ -214,8 +214,9 @@ relying on it.
 
 ## PHP branches
 
-Site configuration accepts `8.3`, `8.4`, and `8.5`. Set `php_default_version`
-and the base `php_versions` list in `settings.yml`; a full server run also
-installs branches requested in `sites.yml`. The current integration fixture
-uses 8.3 and 8.4. PHP 8.5 is accepted by preflight but is not covered by that
-fixture. Test plugins and extensions before changing a live site's branch.
+Every site needs an explicit quoted `php_version` in `sites.yml`. Use a
+`major.minor` value that the Sury package index provides for the target host.
+The full site playbook installs the required packages. `site-apply` refuses a
+branch that the full playbook has not installed and configured. Do not put PHP
+branch defaults in `settings.yml`. Test WordPress, plugins, and extensions
+before changing a live site's branch. See [PHP switching](PHP_VERSION_SWITCH_SPEC.md).

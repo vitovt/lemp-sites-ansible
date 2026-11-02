@@ -14,6 +14,16 @@ PLAY = yaml.safe_load((ROOT / 'playbooks/site-apply.yml').read_text())[0]
 
 
 class SiteApplyTests(unittest.TestCase):
+    def test_selected_site_needs_explicit_php_branch(self):
+        variables = {'wp_site_only': 'first.example',
+                     'wp_sites': {'first.example': {}}}
+        result = self.run_check('Require an explicit PHP branch for the selected site', variables)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Set a quoted major.minor php_version', result.stdout)
+        variables['wp_sites']['first.example']['php_version'] = '8.6'
+        result = self.run_check('Require an explicit PHP branch for the selected site', variables)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_task_list_excludes_shared_service_convergence(self):
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run(['ansible-playbook', '-i',
@@ -57,6 +67,36 @@ class SiteApplyTests(unittest.TestCase):
         variables['wp_sites']['first.example']['redis'] = False
         result = self.run_check('Refuse a Valkey switch through site-apply', variables)
         self.assertNotEqual(result.returncode, 0)
+
+    def test_incomplete_php_branch_requires_full_playbook(self):
+        variables = {'wp_site_only': 'first.example',
+                     'wp_sites': {'first.example': {'php_version': '8.6'}},
+                     'inventory_hostname': 'test-server',
+                     'php_required_extensions': ['fpm', 'cli'],
+                     'site_apply_php_packages': {'results': [
+                         {'stdout': 'installed'}, {'stdout': 'not-installed'}]}}
+        result = self.run_check('Require the complete PHP package set', variables)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('needs PHP 8.6 packages', result.stdout)
+        variables['site_apply_php_packages']['results'][1]['stdout'] = 'installed'
+        result = self.run_check('Require the complete PHP package set', variables)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_missing_php_binary_has_a_clear_error(self):
+        variables = {'wp_site_only': 'first.example',
+                     'wp_sites': {'first.example': {'php_version': '99.99'}},
+                     'inventory_hostname': 'test-server',
+                     'site_apply_php_files': {'results': [
+                         {'item': 'one', 'stat': {'exists': True, 'isreg': True}},
+                         {'item': 'two', 'stat': {'exists': True, 'isreg': True}},
+                         {'item': 'three', 'stat': {'exists': True, 'isreg': True}},
+                         {'item': 'missing', 'stat': {'exists': False}}]}}
+        result = self.run_check('Require an installed PHP branch', variables)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('needs PHP 99.99 installed and managed', result.stdout)
+        variables['site_apply_php_files']['results'][3]['stat'].update({'exists': True, 'isreg': True})
+        result = self.run_check('Require an installed PHP branch', variables)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_dns_token_change_requires_full_run(self):
         variables = {'wp_site_only': 'first.example',

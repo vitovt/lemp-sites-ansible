@@ -4,6 +4,9 @@
   ansible.builtin.set_fact:
     preflight_site_errors: >-
       {%- set e = [] -%}
+      {%- if php_default_version is defined or php_versions is defined -%}
+        {%- set _ = e.append('Remove php_default_version and php_versions; set php_version on every site') -%}
+      {%- endif -%}
       {%- set sites = wp_sites | default({}) -%}
       {%- if sites is not mapping -%}
       {%-   set _ = e.append('wp_sites must be a mapping: domain -> settings') -%}
@@ -21,8 +24,9 @@
       {%-       set db = cfg.db_name | default(domain | regex_replace('[.-]', '_')) | string -%}
       {%-       if domain is not match(dom_re) -%}{%- set _ = e.append(domain ~ ': bad domain name (lowercase, no trailing dot)') -%}{%- endif -%}
       {%-       for k in cfg.keys() | difference(preflight_site_keys) -%}{%- set _ = e.append(domain ~ ': unknown key "' ~ k ~ '"') -%}{%- endfor -%}
-      {%-       if (cfg.php_version | default(php_default_version) | string) is not match('^[5-8]\\.[0-9]$') -%}
-      {%-         set _ = e.append(domain ~ ': php_version must look like "8.3"') -%}
+      {%-       if cfg.php_version is not defined or cfg.php_version is not string
+                     or cfg.php_version is not match('^[1-9][0-9]*\\.[0-9]+$') -%}
+      {%-         set _ = e.append(domain ~ ': php_version is required as a quoted major.minor string') -%}
       {%-       endif -%}
       {%-       if user is not match('^[a-z][a-z0-9_]*$') or user | length > site_user_max_len | default(28) | int -%}
       {%-         set _ = e.append(domain ~ ': bad user "' ~ user ~ '" ([a-z][a-z0-9_]*, max ' ~ site_user_max_len | default(28) ~ ')') -%}
@@ -33,9 +37,6 @@
       {%- endif -%}
       {%-       if db in ['mysql', 'sys', 'information_schema', 'performance_schema', 'test', 'root'] -%}
         {%- set _ = e.append(domain ~ ': reserved database ' ~ db) -%}
-      {%- endif -%}
-      {%-       if (cfg.php_version | default(php_default_version) | string) not in (php_supported_versions | default(['8.3', '8.4', '8.5'])) -%}
-        {%- set _ = e.append(domain ~ ': unsupported PHP version') -%}
       {%- endif -%}
       {%-       if 'cloudflare_token_ref' in cfg and
                    (cfg.cloudflare_token_ref is not string or

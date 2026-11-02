@@ -4,7 +4,6 @@ site_root: /srv/sites
 
 # Defaults merged under every wp_sites entry (wp_sites values win).
 site_defaults:
-  php_version: "{{ php_default_version }}"
   aliases: []
   staging: false
   cache: true

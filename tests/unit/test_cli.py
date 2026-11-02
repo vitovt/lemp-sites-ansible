@@ -31,10 +31,11 @@ class CLITests(unittest.TestCase):
             self.assertEqual(invalid.returncode, 2)
             self.assertEqual(yaml.safe_load(path.read_text())['wp_sites'], {})
             result = subprocess.run([str(ROOT / 'scripts/site'), 'add', 'test', 'example.com',
-                                     'example', '8.3', '--cloudflare-token-ref', 'customer_b',
+                                     'example', '10.0', '--cloudflare-token-ref', 'customer_b',
                                      '--install-wp', '--yes'], env=env, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             site = yaml.safe_load(path.read_text())['wp_sites']['example.com']
+            self.assertEqual(site['php_version'], '10.0')
             self.assertEqual(site['cloudflare_token_ref'], 'customer_b')
             self.assertTrue(site['wp_install'])
 
@@ -46,7 +47,7 @@ class CLITests(unittest.TestCase):
             (path.parent / 'settings.yml').write_text(
                 'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
                 '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
-            path.write_text('wp_sites:\n  source.example: {}\n')
+            path.write_text('wp_sites:\n  source.example:\n    php_version: "8.4"\n')
             binary = base / 'bin'
             binary.mkdir()
             command = binary / 'ansible-playbook'
@@ -68,16 +69,21 @@ class CLITests(unittest.TestCase):
             (path.parent / 'settings.yml').write_text(
                 'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
                 '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
-            original = 'wp_sites:\n  a-b.example:\n    user: old\n'
+            original = 'wp_sites:\n  a-b.example:\n    user: old\n    php_version: "8.4"\n'
             path.write_text(original)
             env = {**os.environ, 'LEMP_INVENTORIES_ROOT': directory}
-            cases = [('a.b.example', 'new', '8.3', 0), ('new.example', 'root', '8.3', 1),
+            cases = [('a.b.example', 'new', '8.3', 0), ('new.example', 'new', '10.0', 0),
+                     ('new.example', 'root', '8.3', 1),
                      ('new.example', 'new', '8.3"\nmalicious: yes', 1), ('../escape', 'new', '8.3', 2)]
             for domain, user, php, expected in cases:
                 with self.subTest(domain=domain, user=user):
                     result = subprocess.run([str(ROOT / 'scripts/site'), 'add', 'test', domain, user, php, '--dry-run'], env=env, capture_output=True)
                     self.assertEqual(result.returncode, expected, result.stderr)
                     self.assertEqual(path.read_text(), original)
+            missing = subprocess.run([str(ROOT / 'scripts/site'), 'add', 'test',
+                                      'new.example', 'new', '--dry-run'], env=env, capture_output=True)
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn(b'add requires <user> <php-version>', missing.stderr)
 
     def test_confirmed_clone_passes_the_exact_target(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -87,7 +93,7 @@ class CLITests(unittest.TestCase):
             (path.parent / 'settings.yml').write_text(
                 'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
                 '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
-            path.write_text('wp_sites:\n  a.example: {}\n  b.example: {}\n')
+            path.write_text('wp_sites:\n  a.example:\n    php_version: "8.4"\n  b.example:\n    php_version: "8.3"\n')
             binary = base / 'bin'
             binary.mkdir()
             log = base / 'arguments'

@@ -34,7 +34,7 @@ class InventoryLayoutTests(unittest.TestCase):
         settings = target / 'settings.yml'
         settings.write_text(settings.read_text().replace('example-server:', name + ':'))
         sites = target / 'sites.yml'
-        sites.write_text('wp_sites:\n  ' + domain + ':\n    user: ' + name.replace('-', '_') + '\n')
+        sites.write_text('wp_sites:\n  ' + domain + ':\n    user: ' + name.replace('-', '_') + '\n    php_version: "8.4"\n')
         return target
 
     def test_example_yaml_and_supported_site_fields(self):
@@ -70,8 +70,7 @@ class InventoryLayoutTests(unittest.TestCase):
             tasks = yaml.safe_load((ROOT / 'roles/preflight/tasks/main.yml').read_text())[:2]
             playbook = Path(directory) / 'preflight.yml'
             playbook.write_text(yaml.safe_dump([{'hosts': 'localhost', 'gather_facts': False,
-                'vars': {**defaults, 'php_default_version': '8.3', 'wp_sites': sites,
-                         'php_supported_versions': ['8.3', '8.4', '8.5'], 'site_user_max_len': 28},
+                'vars': {**defaults, 'wp_sites': sites, 'site_user_max_len': 28},
                 'tasks': tasks}], sort_keys=False))
             env = {**os.environ, 'ANSIBLE_LOCAL_TEMP': str(Path(directory) / 'tmp')}
             result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],

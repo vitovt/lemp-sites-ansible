@@ -73,14 +73,14 @@ server {
     location = /wp-login.php {
         limit_req zone=wp_login burst={{ nginx_login_burst }} nodelay;
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/{{ site_cfg.user }}.sock;
+        fastcgi_pass unix:/run/php/{{ site_cfg.user }}-php{{ site_cfg.php_version }}.sock;
     }
 
     location = /xmlrpc.php {
 {% if site_cfg.xmlrpc %}
         limit_req zone=wp_login burst={{ nginx_login_burst }} nodelay;
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/{{ site_cfg.user }}.sock;
+        fastcgi_pass unix:/run/php/{{ site_cfg.user }}-php{{ site_cfg.php_version }}.sock;
 {% else %}
         return 444;
 {% endif %}
@@ -93,7 +93,7 @@ server {
     # snippets/fastcgi-php.conf (Debian) has try_files $fastcgi_script_name =404.
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/{{ site_cfg.user }}.sock;
+        fastcgi_pass unix:/run/php/{{ site_cfg.user }}-php{{ site_cfg.php_version }}.sock;
 {% if site_cfg.cache %}
         fastcgi_cache WORDPRESS;
         fastcgi_cache_valid 200 301 302 {{ nginx_fastcgi_cache_valid }};
