@@ -83,6 +83,7 @@ contents, password option, and optional cleanup after export.
 
 ## Documentation
 
+- [Operations cheat sheet](Docs/CHEATSHEET.md): task checklists and commands.
 - [Deployment](Docs/DEPLOYMENT.md): server, network, certificates, and first run.
 - [Example inventory](Docs/EXAMPLES.md): all template fields and copy steps.
 - [Controller archive](Docs/ARCHIVE.md): encrypted transfer and recovery.
