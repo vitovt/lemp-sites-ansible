@@ -1,0 +1,38 @@
+# Local configuration and credentials. Add site-specific secrets here.
+/wp-config.php
+/wp-config-local.php
+/.env
+/.env.*
+/*.key
+/*.pem
+
+# Generated content and temporary data.
+/wp-content/uploads/
+/wp-content/cache/
+/wp-content/upgrade/
+/wp-content/ewww/
+/wp-content/wflogs/
+/wp-content/wp-rocket-config/
+/wp-content/updraft/
+/wp-content/ai1wm-backups/
+/wp-content/backups-dup-lite/
+/wp-content/backup-db/
+/wp-content/litespeed/
+/wp-content/advanced-cache.php
+/wp-content/object-cache.php
+/wp-content/debug.log
+*.log
+*.sql
+*.sql.gz
+*.sql.zst
+*.dump
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.wpress
+*.tmp
+*.swp
+*~
+
+# Plugin and theme code stays in Git. Review this file for each site.

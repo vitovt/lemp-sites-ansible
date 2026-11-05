@@ -42,6 +42,16 @@ Core repair reads version metadata without executing version.php. It does not
 remove all persistence, repair every plugin, or clean malicious database content.
 Quarantine needs explicit confirmation. Review the result before a Git commit.
 
+## Site Git baseline
+
+Sites without a Git repository get `htdocs/.gitignore` before the first Git commit.
+It excludes local secrets, uploads, generated data, logs, and archives. Plugin
+and theme code stays in Git. Ansible does not change an existing `.gitignore`
+or an existing Git repository. The developer must review and maintain the rules
+after installation. Removing the `wp-config.php` rule can expose credentials in
+a later commit. A new `.gitignore` does not remove secrets from earlier commits.
+Clean old Git history as a separate operation when needed.
+
 A killed process or a host failure can interrupt rollback. Inspect the private
 recovery directory and maintenance marker before you enable traffic again.
 Use VM/storage snapshots and an external backup for stronger recovery guarantees.

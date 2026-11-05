@@ -26,6 +26,23 @@
   ansible.builtin.include_tasks: users.yml
 - name: Directories ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: dirs.yml
+- name: Check for an existing site Git repository
+  ansible.builtin.stat:
+    path: "{{ site_cfg.path }}/htdocs/.git"
+  register: site_git_repository
+- name: Check for an existing site Git ignore file
+  ansible.builtin.stat:
+    path: "{{ site_cfg.path }}/htdocs/.gitignore"
+  register: site_gitignore
+- name: Add initial site Git ignore rules
+  ansible.builtin.copy:
+    src: wordpress.gitignore
+    dest: "{{ site_cfg.path }}/htdocs/.gitignore"
+    owner: "{{ site_cfg.user }}"
+    group: "{{ site_cfg.user }}"
+    mode: "0640"
+    force: false
+  when: not site_git_repository.stat.exists and not site_gitignore.stat.exists
 - name: Database ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: db.yml
 - name: WordPress config ({{ site_cfg.domain }})

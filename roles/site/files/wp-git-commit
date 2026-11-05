@@ -20,9 +20,6 @@ def git(*args):
 
 if not (root / '.git').exists():
     git('init', '-q')
-    # The owner writes its own exclude file; root must not follow site links.
-    run(['runuser', '-u', s['SITE_USER'], '--', 'tee', str(root / '.git/info/exclude')],
-        data=b'wp-content/uploads/\nwp-content/cache/\nwp-content/upgrade/\n')
 git('add', '-A')
 result = run(['runuser', '-u', s['SITE_USER'], '--', 'git', '-C', str(root), 'diff', '--cached', '--quiet'], check=False)
 if result.returncode == 0:

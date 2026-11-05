@@ -1,7 +1,8 @@
 ---
 # New site only (no conf/site.env yet): refuse a docroot that has files but no
 # WordPress (wrong path, half-copied migration, someone else's code).
-# Allowed: missing/empty htdocs, only wp-config.php/.git/empty dirs, or a WordPress tree.
+# Allowed: missing/empty htdocs, only wp-config.php/.gitignore/.git/empty dirs,
+# or a WordPress tree.
 # Override: -e site_docroot_force=true
 - name: Check for an existing site.env ({{ site_cfg.domain }})
   ansible.builtin.stat:
@@ -15,7 +16,7 @@
       d={{ (site_cfg.path ~ '/htdocs') | quote }};
       [ -d "$d" ] || exit 0;
       [ -f "$d/wp-includes/version.php" ] && exit 0;
-      find "$d" -mindepth 1 \( -path "$d/.git" -prune \) -o ! -type d ! -path "$d/wp-config.php" -print | head -n 5
+      find "$d" -mindepth 1 \( -path "$d/.git" -prune \) -o ! -type d ! -path "$d/wp-config.php" ! -path "$d/.gitignore" -print | head -n 5
     executable: /bin/bash
   register: site_docroot_foreign
   changed_when: false
