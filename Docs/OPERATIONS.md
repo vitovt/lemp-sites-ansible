@@ -161,7 +161,8 @@ The repository does not provision the external storage service.
 wp-monitor --check [domain]
 wp-monitor --files example.com
 wp-monitor --ack example.com
-wp-backup update example.com --yes
+wp-update plan example.com
+sudo wp-update apply example.com --scope all --policy minor
 systemctl list-timers 'wp-*'
 ```
 
@@ -170,13 +171,22 @@ A missing installed core is a failure. Administrator changes remain pending unti
 an explicit ack. Telegram delivery errors return failure; local logs remain in
 journald. Long messages are split into bounded chunks.
 
-Weekly checked updates are enabled by default. The update runner requires a clean,
-reviewed code baseline and valid checksums. It makes a backup, saves rollback data,
-applies minor core updates and available plugin/theme updates, checks integrity
-and uncached HTTP health, then accepts the new code baseline.
-On failure, it restores code and the DB. Maintenance sites are skipped.
+Weekly checked updates are enabled by default. The runner requires a clean Git
+baseline and a completed backup of the site from today. It does not create a
+backup. The scheduled run applies minor updates. It skips held components in
+`/etc/wp-hosting/update-policy.yml`. Set holds in the server inventory file
+`update-policy.yml`.
+
+For a manual run, use `--skip-backup-check` only when you accept that risk.
+The updater stages only the updated component. A dirty target needs
+`--allow-dirty-target` and stays uncommitted. `--no-maintenance` is manual only.
+Run `wp-update --help` for examples. On failure, read the site update log and
+the alert. There is no automatic rollback. Use the separate restore procedure.
+Existing sites keep their Git repository and `.gitignore`. A backup made before
+this version has no completion marker for the updater. Run the standard backup
+once before the next scheduled update, or wait for the next nightly backup.
 Set `maintenance_auto_update: false` to require manual update windows.
-Private plugins without checksums can stop the update check. Review them separately.
+Hold private or locally patched plugins until you review their update source.
 
 Sury package updates are included in unattended upgrades by default.
 An update can restart PHP. Major WordPress and PHP upgrades need a separate test.

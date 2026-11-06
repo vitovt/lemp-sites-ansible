@@ -1,0 +1,10 @@
+# Optional update holds for this server. Copy with the server inventory.
+# Use a plugin or theme directory name as the key. Give a short reason.
+# A held component is not sent to WP-CLI. Other components still update.
+sites: {}
+#  site1.example.com:
+#    plugins:
+#      custom-plugin: "Custom code; update by hand"
+#      patched-plugin: "Local fix is not in the vendor release"
+#    themes:
+#      custom-theme: "Fixed version for this site"

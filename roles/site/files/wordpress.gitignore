@@ -18,8 +18,6 @@
 /wp-content/backups-dup-lite/
 /wp-content/backup-db/
 /wp-content/litespeed/
-/wp-content/advanced-cache.php
-/wp-content/object-cache.php
 /wp-content/debug.log
 *.log
 *.sql

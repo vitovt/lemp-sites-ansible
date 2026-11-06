@@ -192,7 +192,8 @@ scripts/lemp my-server verify
 scripts/site info my-server example.com
 sudo wp-monitor --check example.com
 sudo wp-monitor --files example.com
-sudo wp-backup update example.com --yes
+sudo wp-update plan example.com
+sudo wp-update apply example.com --scope all --policy minor
 ```
 
 Run the `sudo` commands on the server. Updates run from a root-owned timer;

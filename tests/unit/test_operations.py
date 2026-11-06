@@ -118,6 +118,30 @@ class OperationTests(unittest.TestCase):
                 self.assertEqual(command.call_count, 1)
                 self.assertNotIn('complete', command.call_args.args[0])
 
+    def test_copy_failure_does_not_mark_backup_complete(self):
+        import importlib.machinery
+        import types
+        loader = importlib.machinery.SourceFileLoader('backup_copy_cli', str(ROOT / 'roles/backup_restic/files/wp-backup'))
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        with patch.dict(sys.modules, {'wp_hosting': ops}):
+            loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            env = {'BACKUP_PATHS': directory, 'BACKUP_EXCLUDES': '',
+                   'RESTIC_COPY_REPOSITORY': 'sftp:test', 'RESTIC_COPY_PASSWORD_FILE': '/tmp/test',
+                   'RESTIC_REPOSITORY': directory, 'RESTIC_PASSWORD_FILE': '/tmp/test'}
+            commands = []
+            def fake_run(args, **kwargs):
+                commands.append(args)
+                if args[:2] == ['restic', 'snapshots']:
+                    return types.SimpleNamespace(stdout=b'[{"id":"abc"}]')
+                if 'copy' in args:
+                    raise RuntimeError('copy failed')
+                return types.SimpleNamespace(returncode=0)
+            with patch.object(module, 'backup_site'), patch.object(module, 'run', side_effect=fake_run):
+                with self.assertRaisesRegex(RuntimeError, 'copy failed'):
+                    module.backup([{'domain': 'example.com'}], env, None, full=True)
+            self.assertFalse(any(args[:2] == ['restic', 'tag'] for args in commands))
+
     def test_cache_purge_does_not_follow_a_symlink(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

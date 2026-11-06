@@ -16,7 +16,7 @@ import time
 
 sys.path.insert(0, '/usr/local/lib/wp-hosting')
 from wp_hosting import (Database, SITES, backup_site, clone, load, operation_lock, prefix,
-    read_env, require_wordpress_tables, restore_database, remove_site, update_site, sha256_file, run, site)
+    read_env, require_wordpress_tables, restore_database, remove_site, sha256_file, run, site)
 
 
 def snapshot_for(domain, env):
@@ -62,15 +62,27 @@ def backup(sites, env, db, full=False):
     snapshots = json.loads(run(['restic', 'snapshots', '--json', '--tag', tag], env=env).stdout)
     if len(snapshots) != 1:
         raise RuntimeError('Cannot identify the new snapshot')
-    run(['restic', 'tag', '--add', 'complete', snapshots[0]['id']], env=env)
+    snapshot_id = snapshots[0]['id']
     if full:
         if env.get('RESTIC_COPY_REPOSITORY'):
             run(['restic', '--repo', env['RESTIC_COPY_REPOSITORY'], '--password-file', env['RESTIC_COPY_PASSWORD_FILE'],
                  'copy', '--from-repo', env['RESTIC_REPOSITORY'], '--from-password-file', env['RESTIC_PASSWORD_FILE']], env=env, timeout=7200)
         run(['restic', 'check', '--quiet'], env=env, timeout=7200)
+    run(['restic', 'tag', '--add', 'complete', snapshot_id], env=env)
+    if full:
         run(['restic', 'forget', '--quiet', '--prune', '--tag', 'complete', '--keep-daily', env['KEEP_DAILY'],
              '--keep-weekly', env['KEEP_WEEKLY'], '--keep-monthly', env['KEEP_MONTHLY']], env=env, timeout=7200)
         prune_recovery(sites, int(env.get('RECOVERY_KEEP_DAYS', '14')))
+    # This root-owned marker is written only after required backup steps pass.
+    from datetime import datetime
+    now = datetime.now().astimezone()
+    marker_dir = Path('/var/lib/wp-hosting/backups')
+    marker_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    marker_dir.chmod(0o700)
+    marker = marker_dir / (now.strftime('%Y%m%d-%H%M%S-') + snapshot_id + '.json')
+    marker.write_text(json.dumps({'snapshot': snapshot_id, 'sites': [s['domain'] for s in sites],
+                                  'date': now.date().isoformat(), 'time': now.isoformat()}))
+    marker.chmod(0o600)
     print('PASS backup complete')
 
 
@@ -156,12 +168,6 @@ def main():
                 raise ValueError('Dump hash differs from its manifest')
             restore_database(s, path, db, manifest)
             print('PASS database restored')
-        elif args.action == 'update':
-            if len(args.arguments) != 1 or not args.yes:
-                parser.error('update <domain> --yes')
-            s = site(args.arguments[0])
-            backup([s], env, db)
-            update_site(s, db)
         elif args.action == 'remove':
             if len(args.arguments) != 1 or not args.yes:
                 parser.error('remove <domain> --yes')

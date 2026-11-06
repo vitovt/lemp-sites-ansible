@@ -1,21 +1,61 @@
 ---
 - name: Install the update runner
   ansible.builtin.copy:
+    src: wp-update
     dest: /usr/local/sbin/wp-update
     owner: root
     group: root
     mode: "0755"
-    content: |
-      #!/usr/bin/env python3
-      import pathlib, subprocess, sys
-      failed = False
-      for facts in pathlib.Path('/srv/sites').glob('*/conf/site.env'):
-          base = facts.parent.parent
-          if (base / 'conf/maintenance').exists() or not (base / 'conf/wordpress-installed').exists():
-              continue
-          result = subprocess.run(['/usr/local/sbin/wp-backup', 'update', base.name, '--yes'])
-          failed = failed or result.returncode != 0
-      sys.exit(1 if failed else 0)
+
+- name: Install YAML parser for update policy
+  ansible.builtin.apt:
+    name: python3-yaml
+    state: present
+
+- name: Check for the server update policy
+  ansible.builtin.stat:
+    path: "{{ inventory_dir }}/update-policy.yml"
+  delegate_to: localhost
+  become: false
+  register: update_policy_source
+
+- name: Load the server update policy
+  ansible.builtin.include_vars:
+    file: "{{ inventory_dir }}/update-policy.yml"
+    name: update_policy_data
+  when: update_policy_source.stat.exists
+
+- name: Validate update holds
+  ansible.builtin.assert:
+    that:
+      - update_policy_data.keys() | list == ['sites']
+      - update_policy_data.sites is mapping
+      - update_policy_data.sites.keys() | difference(wp_sites.keys()) | length == 0
+    fail_msg: "The update policy must contain only known sites."
+  when: update_policy_source.stat.exists
+
+- name: Create the update policy directory
+  ansible.builtin.file:
+    path: /etc/wp-hosting
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the update policy
+  ansible.builtin.copy:
+    src: "{{ inventory_dir }}/update-policy.yml"
+    dest: /etc/wp-hosting/update-policy.yml
+    owner: root
+    group: root
+    mode: "0644"
+  when: update_policy_source.stat.exists
+
+- name: Remove an old policy when this server has none
+  ansible.builtin.file:
+    path: /etc/wp-hosting/update-policy.yml
+    state: absent
+  when: not update_policy_source.stat.exists
 
 - name: Install the update service and timer
   ansible.builtin.copy:
@@ -28,11 +68,11 @@
     - name: wp-update.service
       content: |
         [Unit]
-        Description=Checked WordPress updates with backup and rollback
+        Description=Checked WordPress code updates
         After=nginx.service mariadb.service
         [Service]
         Type=oneshot
-        ExecStart=/usr/local/sbin/wp-update
+        ExecStart=/usr/local/sbin/wp-update run --automatic --all-sites
         TimeoutStartSec=2h
         Nice=10
     - name: wp-update.timer

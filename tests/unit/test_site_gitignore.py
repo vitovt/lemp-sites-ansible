@@ -26,6 +26,8 @@ class SiteGitignoreTest(unittest.TestCase):
                 'wp-content/ai1wm-backups/site.wpress': False,
                 'wp-content/plugins/ewww-image-optimizer/plugin.php': True,
                 'wp-content/plugins/wp-rocket/plugin.php': True,
+                'wp-content/advanced-cache.php': True,
+                'wp-content/object-cache.php': True,
                 'wp-content/themes/example/style.css': True,
                 'wp-includes/version.php': True,
             }
