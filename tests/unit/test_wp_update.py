@@ -6,6 +6,7 @@ import sys
 import os
 import pwd
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -41,6 +42,20 @@ class InterfaceTests(unittest.TestCase):
     def test_automatic_requires_all_sites(self):
         result = self.run_cli('run', '--automatic')
         self.assertEqual(result.returncode, 2)
+
+    def test_manual_skip_does_not_read_backup_credentials(self):
+        args = SimpleNamespace(scope='all', policy='latest', skip_backup_check=True,
+                               automatic=False, no_maintenance=False, allow_dirty_target=False)
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'conf').mkdir()
+            site = {'base': base, 'domain': 'example.com'}
+            with patch.object(module, 'backup_today', side_effect=AssertionError('backup was read')), \
+                 patch.object(module, 'git', return_value=SimpleNamespace(returncode=0)), \
+                 patch.object(module, 'inventory', return_value=[]), \
+                 patch.object(module, 'policy', return_value={}), \
+                 patch.object(module, 'report'):
+                self.assertFalse(module.apply(site, args))
 
     def test_component_commit_keeps_other_staged_changes(self):
         with tempfile.TemporaryDirectory() as directory:

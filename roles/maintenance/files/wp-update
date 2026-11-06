@@ -194,7 +194,7 @@ def apply(s, args):
         marker = s['base'] / 'conf/maintenance'
         if marker.exists():
             raise RuntimeError('Site is already in maintenance')
-        snapshot = backup_today(s)
+        snapshot = None if args.skip_backup_check else backup_today(s)
         if not args.skip_backup_check and not snapshot:
             raise RuntimeError('No completed site backup from today')
         lines.append('BACKUP ' + (f'{snapshot[0]} {snapshot[1]}' if snapshot else 'check skipped'))
