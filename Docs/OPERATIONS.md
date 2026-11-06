@@ -103,7 +103,10 @@ wp-monitor --ack example.com
 ```
 
 The permissions tool refuses symbolic and hard links. Normal convergence checks
-permissions. It does not silently change an imported code tree.
+permissions. It does not silently change an imported code tree. In uploads,
+cache, and upgrade directories, the check accepts safe files created by the
+site's PHP runtime user. Code outside these directories still needs the site
+owner and the managed modes.
 
 ## Backups
 
