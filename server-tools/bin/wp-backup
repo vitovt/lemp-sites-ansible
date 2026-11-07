@@ -104,29 +104,10 @@ def verify(sites, env, db):
     for s in sites:
         with tempfile.TemporaryDirectory(prefix='wp-verify-', dir='/srv') as temporary:
             restored = restore_files(s, env, destination=Path(temporary))
-            manifest = json.loads((restored / 'backup/manifest.json').read_text())
-            path = restored / 'backup/db.sql.gz'
-            if sha256_file(path) != manifest['sha256']:
-                raise ValueError('Backup dump hash differs from its manifest')
-            if 'files_sha256' in manifest:
-                files_path = restored / 'backup/files.jsonl'
-                if sha256_file(files_path) != manifest['files_sha256']:
-                    raise ValueError('The file manifest hash differs')
-                with files_path.open() as stream:
-                    for line in stream:
-                        if not (restored / 'htdocs' / json.loads(line)).is_file():
-                            raise ValueError('A file is missing from the snapshot')
-            else:
-                for relative in manifest.get('files', []):
-                    if not (restored / 'htdocs' / relative).is_file():
-                        raise ValueError('A file is missing from the snapshot')
-            with db.scratch() as (name, password):
-                load(path, name, name, password)
-                tables = db.tables(name)
-                if tables != manifest['tables']:
-                    raise ValueError('Snapshot table list differs from its manifest')
-                if manifest['installed']:
-                    require_wordpress_tables(tables, manifest['prefix'])
+            from backup_recovery import verify_manifest
+            report = verify_manifest(restored, scratch=True, db=db)
+            if any('manifest: missing' in item or 'file availability: no file list' in item for item in report):
+                raise ValueError('Backup verification metadata is missing')
             print('PASS ' + s['domain'] + ' backup_files backup_db')
     run(['restic', 'check', '--read-data-subset=5%'], env=env, timeout=7200)
 
