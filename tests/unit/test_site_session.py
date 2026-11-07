@@ -34,6 +34,8 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(env['SITE_DOMAIN'], 'first.example')
         self.assertEqual(env['SITE_PHP'], '9.7')
         self.assertEqual(env['HOME'], '/srv/sites/first.example/owner-tmp')
+        self.assertEqual(env['SHELL'], '/bin/bash')
+        self.assertEqual(env['PATH'].split(':')[0], '/usr/local/lib/wp-hosting/bin/site-session')
         for key in ('LD_PRELOAD', 'BASH_ENV', 'ENV', 'SUDO_USER', 'PYTHONPATH', 'SSH_AUTH_SOCK', 'SECRET_PASSWORD'):
             self.assertNotIn(key, env)
 
@@ -182,7 +184,7 @@ class SessionTests(unittest.TestCase):
                 s = {**self.s, 'base': base, 'account': account}
                 with patch.object(session, 'current_site', return_value=s), patch.object(session, 'docroot', return_value=base), \
                      patch.object(sys.stdin, 'isatty', return_value=True), patch.object(sys.stdout, 'isatty', return_value=True), \
-                     patch.object(sys.stderr, 'isatty', return_value=True), patch.object(session, 'trusted', side_effect=Path), \
+                     patch.object(sys.stderr, 'isatty', return_value=True), patch.object(session, 'trusted', side_effect=lambda path, **kwargs: Path(path)), \
                      patch.object(session, 'php_path', return_value='/usr/bin/php9.7'), patch.object(session, 'close_inherited_fds'), \
                      patch.object(session.os, 'chdir'), patch.object(session.os, 'execve') as execute:
                     session.shell()

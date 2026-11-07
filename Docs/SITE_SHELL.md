@@ -49,6 +49,10 @@ Git, common WP-CLI commands, policy actions, plugins, and themes have Bash compl
 Tab does not run sudo, PHP, or site code in the custom completion functions.
 Git completion comes from the distribution's `bash-completion` package.
 
+A private root-owned PATH directory also binds `env php`, `env wp`, and child commands
+to these wrappers. The global system commands are not replaced. Session `SHELL` is `/bin/bash` for child programs;
+the account login shell remains `nologin`.
+
 The WP wrapper rejects `--path`, `--ssh`, and `--http` overrides.
 It skips plugins and themes by default, as the previous operator shell did.
 Raw WP-CLI commands run as the code owner. They can change code and bypass managed update holds.
@@ -138,6 +142,7 @@ No new sudo rule or scheduled job is created by these shell tools.
 
 - Add commands to `server-tools/bin/`.
 - Add shared libraries or profiles to `server-tools/lib/`.
+- Keep the private `php`/`wp` PATH wrappers under `server-tools/bin/site-session/`; do not put them at the top level.
 - Add optional reference topics to `site_help.py` and completion rules to `site-completion.bash`.
 - Keep privileged permissions and package dependencies in Ansible.
 

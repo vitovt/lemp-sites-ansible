@@ -129,12 +129,14 @@ class ShellTests(unittest.TestCase):
             base.mkdir(parents=True)
             os.chown(base, 0, pwd.getpwnam(owner).pw_gid)
             base.chmod(0o750)
-            for name in ('conf', 'htdocs', 'owner-tmp', 'backup'):
+            for name in ('conf', 'htdocs', 'owner-tmp', 'backup', 'tmp'):
                 path = base / name
                 path.mkdir()
                 path.chmod(0o755 if name == 'conf' else 0o700)
                 if name in ('htdocs', 'owner-tmp'):
                     os.chown(path, pwd.getpwnam(owner).pw_uid, pwd.getpwnam(owner).pw_gid)
+                elif name == 'tmp':
+                    os.chown(path, pwd.getpwnam(owner + '-php').pw_uid, pwd.getpwnam(owner).pw_gid)
             (base / 'conf/site.env').write_text(f'DOMAIN={domain}\nSITE_USER={owner}\nDB_NAME={owner}\nPHP_VERSION=8.4\nREDIS=true\n')
             (base / 'conf/site.env').chmod(0o644)
             home = base / 'owner-tmp'
@@ -154,11 +156,14 @@ class ShellTests(unittest.TestCase):
         Path('/root/private-test-secret').write_text('root fixture')
         Path('/root/private-test-secret').chmod(0o600)
         install()
+        if Path('/usr/local/sbin/php').exists() or Path('/usr/local/sbin/wp').exists():
+            raise RuntimeError('Private wrappers must not replace global commands')
 
     def test_01_identity_groups_environment_and_real_tools(self):
         script = '''python3 -c 'import os,json;print("SESSION="+json.dumps({"uid":os.getresuid(),"gid":os.getresgid(),"groups":os.getgroups(),"cwd":os.getcwd(),"tty":os.ttyname(0),"env":dict(os.environ)}))'
 php -v
 wp --info
+env wp --info
 git init -q
 git config user.name
 git config user.email
@@ -186,6 +191,7 @@ printf 'COMMANDS-DONE\\n'
         for key in ('BASH_ENV', 'ENV', 'PYTHONPATH', 'ROOT_PASSWORD', 'SUDO_USER', 'LD_PRELOAD'):
             self.assertNotIn(key, data['env'])
         self.assertEqual(data['env']['SITE_DOMAIN'], 'one.example')
+        self.assertEqual(data['env']['SHELL'], '/bin/bash')
         self.assertIn('PHP 8.4', out)
         self.assertIn('WP-CLI version:', out)
         self.assertIn('Site operator', out)
@@ -218,6 +224,17 @@ printf 'COMMANDS-DONE\\n'
         self.assertFalse(Path('/srv/sites/two.example/conf/code-policy.yml').exists())
         self.assertIn('only this site', out)
         self.assertNotIn('uid=0(root)', out)
+        import importlib.machinery
+        import importlib.util
+        loader = importlib.machinery.SourceFileLoader('installed_wp_site', '/usr/local/lib/wp-hosting/bin/wp-site')
+        helper = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(helper)
+        s = {'base': self.base, 'SITE_USER': 'shell_one', 'PHP_VERSION': '8.4'}
+        result = helper.run_site(s, 'shell_one-php', helper.wp_args(s, '--info'), capture=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('/srv/sites/one.example/tmp/wp-cli-cache', result.stdout)
+        self.assertEqual(helper.run_site(s, 'shell_one-php', ['/usr/bin/test', '-w', str(self.base / 'tmp')]).returncode, 0)
+        self.assertNotEqual(helper.run_site(s, 'shell_one-php', ['/usr/bin/test', '-w', str(self.base / 'owner-tmp')]).returncode, 0)
 
     def test_04_direct_shell_has_the_same_identity_without_env_site_selection(self):
         valkey = run(['getent', 'group', 'valkey']).stdout.split(':')[2]
@@ -330,10 +347,11 @@ printf 'COMMANDS-DONE\\n'
         facts.write_text(old.replace('PHP_VERSION=8.4', 'PHP_VERSION=9.7'))
         try:
             code, out = terminal(['/usr/local/sbin/jump-in', 'one.example'], '''php -v
+env php -v
 printf 'COMMANDS-DONE\\n'
 ''', env={'SITE_PHP': '8.4'})
             self.assertEqual(code, 0, out)
-            self.assertIn('FIXTURE-PHP-9.7', out)
+            self.assertGreaterEqual(out.count('FIXTURE-PHP-9.7'), 2)
             self.assertIn('PHP: 9.7', out)
         finally:
             facts.write_text(old)

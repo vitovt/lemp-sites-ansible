@@ -406,7 +406,7 @@ tools and sites on VM 241 were not replaced. Server 125 was not accessed.
 
 ### Passed
 
-- Controller suite: 179 unit tests. Playbook, Python, shell, and shared Bash profile syntax checks passed.
+- Controller suite: 180 unit tests. Playbook, Python, shell, and shared Bash profile syntax checks passed.
 - `ansible-lint --offline` passed the production profile.
 - Eleven PTY integration tests passed in a disposable Debian 13 container.
   Runtime networking was disabled. The container received no inventories, keys, host mounts, or production secrets.
@@ -414,9 +414,11 @@ tools and sites on VM 241 were not replaced. Server 125 was not accessed.
   current directory, environment cleanup, and inherited umask isolation.
 - Another site's private file and a root private file were unreadable. General sudo and another site's
   policy were denied. The PHP runtime could not enter the owner environment or write the code fixture.
+- The private PATH also bound child `env php` and `env wp` calls. Global commands were not replaced.
 - Actual PHP 8.4, pinned WP-CLI 2.12.0 (`--info`), Git init/add/commit/status, and owner code-check commands.
 - PHP selection from changed facts used a generated `php9.7` test executable. Environment values did not
   select another PHP branch or site. The fixture did not test a real PHP 9.7 release.
+- The privileged checksum helper used the runtime-owned temporary home/cache, without loosening owner-home permissions.
 - The current policy sudoers task was reused. Own-site policy writes passed; cross-site writes and
   a privileged Git command were denied.
 - Completion, summary help, detailed help, full help, direct UID-bound entry, and one initial Bash session.

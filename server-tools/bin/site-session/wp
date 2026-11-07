@@ -1,0 +1,3 @@
+#!/bin/sh
+# Bind child WP-CLI calls to the current site owner, path and PHP branch.
+exec /usr/local/sbin/site-wp "$@"

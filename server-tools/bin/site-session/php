@@ -1,0 +1,3 @@
+#!/bin/sh
+# Private site PATH entry. Do not link this command into a global system directory.
+exec /usr/local/sbin/site-php "$@"

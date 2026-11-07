@@ -17,7 +17,8 @@ from wp_hosting import DOMAIN, NAME, RESERVED, parse_env
 SITES = Path('/srv/sites')
 TOOLS = Path('/usr/local/lib/wp-hosting')
 SHELL = '/usr/local/sbin/site-shell'
-PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+BASE_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+PATH = str(TOOLS / 'bin/site-session') + ':' + BASE_PATH
 
 
 def trusted(path, *, directory=False):
@@ -116,7 +117,7 @@ def environment(s):
     term = os.environ.get('TERM', 'dumb')
     if not re.fullmatch(r'[a-zA-Z0-9+_.-]{1,80}', term):
         term = 'dumb'
-    return {'HOME': str(s['base'] / 'owner-tmp'), 'USER': s['SITE_USER'], 'LOGNAME': s['SITE_USER'],
+    return {'HOME': str(s['base'] / 'owner-tmp'), 'SHELL': '/bin/bash', 'USER': s['SITE_USER'], 'LOGNAME': s['SITE_USER'],
             'PATH': PATH, 'TERM': term, 'LANG': 'C.UTF-8',
             'SITE_DOMAIN': s['domain'], 'SITE_USER': s['SITE_USER'], 'SITE_BASE': str(s['base']),
             'SITE_PHP': s['PHP_VERSION'], 'WP_CLI_CACHE_DIR': str(s['base'] / 'owner-tmp/wp-cli-cache'),
@@ -160,8 +161,10 @@ def enter(domain):
     command = ['/usr/sbin/runuser', '--pty', '--user=' + s['SITE_USER'], '--group=' + s['SITE_USER']]
     command += ['--supp-group=' + grp.getgrgid(gid).gr_name for gid in s['groups']]
     command += ['--', '/usr/bin/setpriv', '--inh-caps=-all', '--ambient-caps=-all', '--', str(shell)]
+    env = environment(s)
+    env['PATH'] = BASE_PATH  # Privileged terminal setup must use only system commands.
     close_inherited_fds()
-    os.execve(command[0], command, environment(s))
+    os.execve(command[0], command, env)
 
 
 def shell():
@@ -190,6 +193,7 @@ def shell():
         os.close(fd)
     profile = trusted(TOOLS / 'lib/site-shell.bashrc')
     trusted(TOOLS / 'lib/site-completion.bash')
+    trusted(TOOLS / 'bin/site-session', directory=True)
     php_path(s)
     env = environment(s)
     env['HISTFILE'] = str(history)
