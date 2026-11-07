@@ -476,3 +476,12 @@ tools and sites on VM 241 were not replaced. Server 125 was not accessed.
 - No live WordPress core, plugin, or theme update was run.
 - Real Telegram delivery, remote restic repositories, and GitHub Actions were
   not tested for this change. Existing server records were not modified.
+
+## Updater action hints (2026-11-07)
+
+- Passed: 201 unit tests and playbook, Python, and shell syntax checks through
+  `tests/check.sh`. The 13 updater tests also passed after the final hint edits.
+- Regressions cover advice for failure categories, backup bypass warnings,
+  quoted site values, hints in private logs, invalid CLI help, and plan errors.
+- This change adds print-only advice. No server was accessed. Live updates,
+  Telegram delivery, and execution of the suggested recovery commands were not tested.

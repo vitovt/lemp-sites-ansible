@@ -82,11 +82,15 @@ class InterfaceTests(unittest.TestCase):
                 self.assertTrue(module.apply(site, args))
             wp.assert_not_called()
             self.assertIn('FAIL No completed site backup from today', errors.getvalue())
+            self.assertIn('wp-backup example.com', errors.getvalue())
+            self.assertIn('--skip-backup-check', errors.getvalue())
+            self.assertIn('recovery data may be unavailable', errors.getvalue())
             logs = list((base / 'logs').glob('wp-update-*.log'))
             self.assertEqual(len(logs), 1)
             self.assertIn('LOG ' + str(logs[0]), errors.getvalue())
             self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
             self.assertIn('FAIL No completed site backup from today', logs[0].read_text())
+            self.assertIn('HINT Create a backup: wp-backup example.com', logs[0].read_text())
             self.assertFalse((base / 'conf/maintenance').exists())
 
     def test_reporting_failures_do_not_hide_the_original_result(self):
@@ -94,10 +98,57 @@ class InterfaceTests(unittest.TestCase):
             errors = io.StringIO()
             with patch.object(module.subprocess, 'run', side_effect=OSError('unavailable')), \
                  contextlib.redirect_stderr(errors):
-                module.report({'base': Path(directory)}, ['FAIL original cause', 'FAIL'])
+                module.report({'base': Path(directory), 'domain': 'example.com'}, ['FAIL original cause', 'FAIL'])
             self.assertIn('FAIL original cause', errors.getvalue())
             self.assertIn('log could not be written', errors.getvalue())
             self.assertIn('syslog delivery is unavailable', errors.getvalue())
+
+    def test_each_failure_category_has_actionable_advice(self):
+        site = {'domain': 'example.com', 'base': Path('/srv/sites/example.com')}
+        cases = {
+            'No completed site backup from today': 'wp-backup example.com',
+            'Site is already in maintenance': 'conf/maintenance',
+            'Git baseline is missing': 'initial commit',
+            'Git index or worktree is not clean': 'git diff',
+            'target has local changes': '--allow-dirty-target',
+            'held: Local patch': 'wp-site policy unhold',
+            'source checksum is unavailable or does not match': 'wp-site check example.com plugins',
+            'Plugin checksum verification failed': 'trusted release',
+            'core:core expected 6.1, got 6.0': 'wp core version',
+            'Uncached health check failed': 'PHP-FPM',
+            'Update changed paths outside the selected component': 'Do not bulk-commit',
+            'Invalid site facts': 'scripts/lemp SERVER doctor',
+            'Unsafe operation lock ownership or link': 'Do not bypass the lock',
+            'Operation lock timeout': 'Do not delete the lock',
+            'runuser failed (exit 1)': 'permissions, disk space',
+        }
+        for reason, expected in cases.items():
+            with self.subTest(reason=reason):
+                lines = module.diagnostic(site, 'FAIL ' + reason)
+                self.assertIn(expected, '\n'.join(lines))
+                self.assertTrue(all(x.startswith('HINT ') for x in lines[1:]))
+
+    def test_hint_commands_quote_site_values(self):
+        site = {'domain': 'site; touch /tmp/unsafe', 'base': Path('/srv/sites/site with spaces')}
+        advice = '\n'.join(module.error_hints(site, 'No completed site backup from today'))
+        self.assertIn("wp-backup 'site; touch /tmp/unsafe'", advice)
+        advice = '\n'.join(module.error_hints(site, 'Site is already in maintenance'))
+        self.assertIn("'/srv/sites/site with spaces'/conf/maintenance", advice)
+
+    def test_invalid_cli_has_help_hint(self):
+        result = self.run_cli('apply', 'example.com', '--scope', 'invalid')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('HINT Run wp-update --help', result.stderr)
+
+    def test_plan_failure_has_hints_without_a_traceback(self):
+        errors = io.StringIO()
+        with patch.object(module.os, 'geteuid', return_value=0), \
+             patch.object(module, 'library', return_value=(lambda domain: (_ for _ in ()).throw(ValueError('Unknown site')), None)), \
+             contextlib.redirect_stderr(errors):
+            self.assertEqual(module.main(['plan', 'example.com']), 1)
+        self.assertIn('FAIL Unknown site', errors.getvalue())
+        self.assertIn('HINT ', errors.getvalue())
+        self.assertNotIn('Traceback', errors.getvalue())
 
     def test_component_commit_keeps_other_staged_changes(self):
         with tempfile.TemporaryDirectory() as directory:

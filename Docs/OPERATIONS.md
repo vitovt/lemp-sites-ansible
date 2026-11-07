@@ -211,3 +211,14 @@ It does not start an update. Review the result before you retry.
 Logs are private files under `/srv/sites/<domain>/logs/wp-update-*.log`.
 If the log cannot be written, the command prints a warning. Use
 `journalctl -t wp-update` to check syslog where available.
+
+Each update failure includes `HINT` lines with review steps and commands.
+Skipped components also include advice. The plan shows advice for missing
+backups and dirty Git. CLI errors refer to full help and a valid example.
+Hints appear in the update log as well as the terminal. They do not run commands.
+
+For a missing backup, run `wp-backup example.com`, then retry. Manual apply
+can use `--skip-backup-check` if you accept the recovery risk. Automatic runs
+cannot skip this check. A dirty target can use `--allow-dirty-target` only
+in manual mode; the update can overwrite local edits and leaves the target
+without an automatic commit. Review files before you use either option.

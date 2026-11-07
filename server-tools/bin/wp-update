@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,75 @@ Automatic runs use minor policy, clean Git, and the backup check.
 """
 BACKUP_MARKERS = Path('/var/lib/wp-hosting/backups')
 SLUG = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
+
+
+def error_hints(s, reason):
+    """Print-only advice. Never accept changes or disable a guard automatically."""
+    domain = shlex.quote(s['domain'])
+    base = shlex.quote(str(s['base']))
+    inspect = f"jump-in {domain}; then run git status --short and git diff."
+    checks = f"wp-site check {domain}"
+    if 'No completed site backup' in reason:
+        return [f"Create a backup: wp-backup {domain}; then retry the update.",
+                "For a manual update only, add --skip-backup-check to your apply command. "
+                "This skips backup validation; recovery data may be unavailable."]
+    if 'already in maintenance' in reason:
+        return [f"Inspect {base}/conf/maintenance and the previous update log. Run {checks}.",
+                f"After you confirm that the site is safe, remove the hosting gate: rm -- {base}/conf/maintenance; then retry."]
+    if 'Git baseline is missing' in reason:
+        return [inspect, "Review code and ignore rules first. Create a reviewed initial commit as the site owner. "
+                'Stage only reviewed paths with git add -- PATH, then run git commit -m "Initial reviewed code". '
+                "Do not accept unknown code with a bulk commit."]
+    if 'not clean' in reason or 'target has local changes' in reason:
+        return [inspect, "Commit only reviewed changes, or save them outside the update target before retrying.",
+                "For intentional target edits, use manual apply with --allow-dirty-target. "
+                "The target can be overwritten and will not be committed automatically. Automatic mode requires clean Git."]
+    if 'held:' in reason:
+        component = re.search(r'(plugin|theme):([a-z0-9][a-z0-9_-]*): held:', reason)
+        kind, name = component.groups() if component else ('plugin', 'PLUGIN')
+        return [f"Review the local rule: wp-site policy show {domain}.",
+                f"To permit updates, use wp-site policy unhold {domain} {shlex.quote(name)} --kind {kind}. "
+                "Replace PLUGIN if shown. Keep the hold for required local patches."]
+    if 'checksum' in reason.lower():
+        return [f"Inspect details: wp-site check {domain} plugins.",
+                "Compare the affected component with its trusted release. Review local patches and code policy. "
+                "Do not accept unknown differences or disable checks only to make the update pass.",
+                "If this happened after an update, inspect the site log and maintenance gate before retrying."]
+    if 'expected ' in reason:
+        return [f"Check installed versions: jump-in {domain}; then run wp core version, wp plugin list, and wp theme list.",
+                "Review the update log, package availability, holds, and network access. Do not assume the update completed."]
+    if 'health check' in reason:
+        return [f"Run {checks}; inspect Nginx and PHP-FPM service logs and the site error log.",
+                "Check the database and health socket /run/wp-hosting/health.sock. "
+                "Keep maintenance enabled until you review the failure."]
+    if 'outside the selected component' in reason:
+        return [inspect, "Review every unexpected path. Preserve evidence and compare with a trusted backup. "
+                "No automatic rollback is performed. Do not bulk-commit these files."]
+    if any(word in reason for word in ('facts', 'Invalid domain', 'Site path', 'Unknown site')):
+        return [f"Check the domain and trusted facts at {base}/conf/site.env. Do not bypass ownership or symlink checks.",
+                "On the controller, review the site's inventory, run scripts/lemp SERVER doctor, "
+                "then apply the corrected configuration with scripts/lemp SERVER site. Replace SERVER with the inventory name."]
+    if 'Unsafe operation lock' in reason:
+        return ["Inspect /run/lock/wp-hosting.lock ownership and symlinks as root. "
+                "Stop and investigate unexpected replacement. Do not bypass the lock or weaken its permissions."]
+    if 'lock' in reason.lower():
+        return ["Run systemctl status wp-backup.service and ps aux to find the active operation. "
+                "Wait for it to finish, then retry. Do not delete the lock file to bypass a running task."]
+    return [f"Run {checks}; inspect the site update log and journalctl -t wp-update.",
+            f"Check site facts in {base}/conf/site.env, tool availability, permissions, disk space, "
+            "and network access. Retry only after you identify the failed step. "
+            "If files changed, review Git and the maintenance gate first."]
+
+
+def diagnostic(s, reason):
+    return [reason, *('HINT ' + hint for hint in error_hints(s, reason))]
+
+
+class HelpParser(argparse.ArgumentParser):
+    def error(self, message):
+        super().error(message + '\nHINT Run wp-update --help for valid commands and examples. '
+                      'Example: wp-update apply example.com --scope core --policy minor. '
+                      'Run this server command as root (or use sudo).')
 
 
 def command(args, *, env=None, check=True):
@@ -147,7 +217,8 @@ def inventory(s, scope, release, holds, log=None):
             if name in holds.get(kind + 's', {}):
                 message = f'SKIP {kind}:{name}: held: {holds[kind + "s"][name]}'
                 if log is None:
-                    print(message)
+                    for line in diagnostic(s, message):
+                        print(line)
                 else:
                     log.append(message)
                 continue
@@ -201,8 +272,12 @@ def commit_paths(s, paths, message):
 def report(s, lines):
     # Show the result even when file or syslog delivery fails. Do not log argv,
     # credentials or raw subprocess output; these lines are the existing summary.
+    expanded = []
     for item in lines:
-        print(item, file=sys.stderr if item.startswith(('FAIL', 'SKIP')) else sys.stdout, flush=True)
+        expanded.extend(diagnostic(s, item) if item.startswith(('FAIL ', 'SKIP ')) else [item])
+    lines = expanded
+    for item in lines:
+        print(item, file=sys.stderr if item.startswith(('FAIL', 'SKIP', 'HINT')) else sys.stdout, flush=True)
     line = '\n'.join(lines) + '\n'
     log = s['base'] / 'logs' / ('wp-update-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '.log')
     try:
@@ -211,12 +286,12 @@ def report(s, lines):
             stream.write(line)
         print('LOG ' + str(log), file=sys.stderr if lines[-1] == 'FAIL' else sys.stdout, flush=True)
     except OSError:
-        print('WARNING update log could not be written: ' + str(log) + '; see journalctl -t wp-update',
+        print('WARNING update log could not be written: ' + str(log) + '; HINT check logs directory ownership and free space with df -h; see journalctl -t wp-update',
               file=sys.stderr, flush=True)
     try:
         subprocess.run(['logger', '-t', 'wp-update'], input=line, text=True, check=False)
     except OSError:
-        print('WARNING syslog delivery is unavailable', file=sys.stderr, flush=True)
+        print('WARNING syslog delivery is unavailable; HINT check command -v logger and systemctl status systemd-journald; use the site log or terminal result.', file=sys.stderr, flush=True)
 
 
 def apply(s, args):
@@ -309,7 +384,7 @@ def main(argv):
     if argv == ['--help']:
         print(SHORT + '\n\n' + HELP)
         return 0
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = HelpParser(add_help=False)
     parser.add_argument('action', choices=['plan', 'apply', 'run'])
     parser.add_argument('domain', nargs='?')
     parser.add_argument('--scope')
@@ -341,12 +416,25 @@ def main(argv):
         parser.error('run with sudo')
     site, operation_lock = library()
     if args.action == 'plan':
-        s = site(args.domain)
-        print('BACKUP', backup_today(s) or 'missing today')
-        print('GIT', 'dirty' if changed(s) else 'clean')
-        for item in inventory(s, args.scope, args.policy, policy(s['domain'])):
-            print('UPDATE', *item[:4])
-        return 0
+        try:
+            s = site(args.domain)
+            backup = backup_today(s)
+            print('BACKUP', backup or 'missing today')
+            if not backup:
+                for hint in error_hints(s, 'No completed site backup from today'):
+                    print('HINT ' + hint)
+            dirty = changed(s)
+            print('GIT', 'dirty' if dirty else 'clean')
+            if dirty:
+                for hint in error_hints(s, 'Git index or worktree is not clean'):
+                    print('HINT ' + hint)
+            for item in inventory(s, args.scope, args.policy, policy(s['domain'])):
+                print('UPDATE', *item[:4])
+            return 0
+        except Exception as exc:
+            for line in diagnostic({'domain': args.domain, 'base': Path('/srv/sites') / args.domain}, f'FAIL {exc}'):
+                print(line, file=sys.stderr)
+            return 1
     domains = [p.name for p in sorted(Path('/srv/sites').iterdir()) if (p / 'conf/wordpress-installed').exists()] if args.action == 'run' else [args.domain]
     failed = False
     for domain in domains:
@@ -354,7 +442,8 @@ def main(argv):
             with operation_lock():
                 failed = apply(site(domain), args) or failed
         except Exception as exc:
-            print(f'FAIL {domain}: {exc}', file=sys.stderr)
+            for line in diagnostic({'domain': domain, 'base': Path('/srv/sites') / domain}, f'FAIL {domain}: {exc}'):
+                print(line, file=sys.stderr)
             subprocess.run(['/usr/local/sbin/tg-alert', f'wp-update failed: {domain}; inspect logs'], check=False)
             failed = True
     return int(failed)
