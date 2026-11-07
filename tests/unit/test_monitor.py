@@ -35,9 +35,12 @@ esac
                     ('echo broken; exit 0\n' if bad_json else 'case "$*" in *plugin*) echo "[]";; *) echo "Success: verified";; esac\n')))
             mock.chmod(0o755)
             script = base / 'monitor'
+            policy_script = base / 'code_policy.py'
+            policy_script.write_text((ROOT / 'roles/site/files/code_policy.py').read_text())
             script.write_text((ROOT / 'roles/wp_monitor/files/wp-monitor').read_text()
                 .replace('SITES_ROOT=/srv/sites', f'SITES_ROOT={base}/sites')
-                .replace('. /etc/wp-monitor.conf', f'. {base}/config'))
+                .replace('. /etc/wp-monitor.conf', f'. {base}/config')
+                .replace('/usr/local/lib/wp-hosting/code_policy.py', str(policy_script)))
             return subprocess.run(['bash', str(script), '--check', 'example.com'],
                 env={**os.environ, 'PATH': str(base / 'bin') + ':' + os.environ['PATH']}, text=True, capture_output=True)
 

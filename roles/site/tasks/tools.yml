@@ -27,6 +27,14 @@
     group: root
     mode: "0644"
 
+- name: Install the local code policy library
+  ansible.builtin.copy:
+    src: code_policy.py
+    dest: /usr/local/lib/wp-hosting/code_policy.py
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Install the static config reader
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../library/hosting_config.py"

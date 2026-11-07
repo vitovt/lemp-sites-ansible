@@ -43,6 +43,15 @@ class InterfaceTests(unittest.TestCase):
         result = self.run_cli('run', '--automatic')
         self.assertEqual(result.returncode, 2)
 
+    def test_site_local_holds_do_not_block_other_components(self):
+        local = {'version': 1, 'plugins': {
+            'patched': {'updates': {'hold': True, 'reason': 'Local fix'}},
+            'normal': {}}, 'themes': {
+            'custom': {'updates': {'hold': True, 'reason': 'Fixed theme'}}}}
+        with patch.dict(sys.modules, {'code_policy': SimpleNamespace(load=lambda base: local)}):
+            self.assertEqual(module.policy('example.com'),
+                             {'plugins': {'patched': 'Local fix'}, 'themes': {'custom': 'Fixed theme'}})
+
     def test_manual_skip_does_not_read_backup_credentials(self):
         args = SimpleNamespace(scope='all', policy='latest', skip_backup_check=True,
                                automatic=False, no_maintenance=False, allow_dirty_target=False)

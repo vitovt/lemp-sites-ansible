@@ -61,12 +61,13 @@ def wp(s, *args, check=True):
 
 
 def policy(domain):
-    path = Path('/etc/wp-hosting/update-policy.yml')
-    if not path.exists():
-        return {'plugins': {}, 'themes': {}}
-    import yaml
-    data = yaml.safe_load(path.read_text()) or {}
-    return (data.get('sites') or {}).get(domain) or {'plugins': {}, 'themes': {}}
+    sys.path.insert(0, '/usr/local/lib/wp-hosting')
+    from code_policy import load
+    data = load(Path('/srv/sites') / domain)
+    return {kind: {name: rule['updates']['reason']
+                   for name, rule in data[kind].items()
+                   if rule.get('updates', {}).get('hold')}
+            for kind in ('plugins', 'themes')}
 
 
 def backup_today(s):

@@ -16,6 +16,12 @@
     mode: "0755"
   when: not site_apply_only | default(false) | bool
 
+- name: Install the site policy YAML parser
+  ansible.builtin.apt:
+    name: python3-yaml
+    state: present
+  when: not site_apply_only | default(false) | bool
+
 - name: Helper scripts
   ansible.builtin.import_tasks: tools.yml
   when: not site_apply_only | default(false) | bool
