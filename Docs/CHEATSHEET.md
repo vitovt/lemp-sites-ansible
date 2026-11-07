@@ -4,6 +4,24 @@ Use these commands from the repository root. Replace `my-server`, domains,
 addresses, and users with your values. Run controller commands as your normal
 user. Run `wp-backup` and `wp-monitor` on the managed server as root.
 
+## Work on one site's code
+
+- [ ] On the managed server, enter the site as its file owner.
+- [ ] Review Git changes and plugin checksum errors before you accept them.
+
+```sh
+jump-in example.com
+git status --short
+wp plugin list
+policy                 # Show local rules and choose an action.
+exit
+wp-site check example.com plugins
+```
+
+Use `wp-site policy hold example.com PLUGIN --reason "Local fix"` to block an
+update. Use `wp-site policy allow-file example.com PLUGIN PATH --yes` only
+after you review that exact file. See [site code operations](SITE_CODE_POLICY.md).
+
 ## 1. Prepare the control machine
 
 - [ ] Clone the repository and install dependencies.
