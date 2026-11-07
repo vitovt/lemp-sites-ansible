@@ -20,6 +20,13 @@ loader.exec_module(helper)
 
 
 class HelperTests(unittest.TestCase):
+    def test_runtime_checksum_command_uses_its_own_writable_cache(self):
+        args = helper.wp_args({'base': Path('/srv/sites/one.example'), 'PHP_VERSION': '8.4'},
+                              'plugin', 'verify-checksums', '--all')
+        self.assertIn('HOME=/srv/sites/one.example/tmp', args)
+        self.assertIn('WP_CLI_CACHE_DIR=/srv/sites/one.example/tmp/wp-cli-cache', args)
+        self.assertNotIn('HOME=/srv/sites/one.example/owner-tmp', args)
+
     def test_sudo_policy_is_limited_to_the_callers_site(self):
         s = {'SITE_USER': 'site_one'}
         accounts = {'site_one': SimpleNamespace(pw_dir='/srv/sites/one.example', pw_uid=1001),
