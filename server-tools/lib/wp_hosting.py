@@ -150,11 +150,18 @@ def dump(database, destination, db):
     try:
         with temporary.open('wb') as raw:
             with gzip.GzipFile(fileobj=raw, mode='wb') as output:
-                process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                shutil.copyfileobj(process.stdout, output)
-                error = process.stderr.read()
-                if process.wait():
-                    raise RuntimeError('Database dump failed')
+                with tempfile.TemporaryFile() as errors:
+                    with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=errors) as process:
+                        try:
+                            with process.stdout:
+                                shutil.copyfileobj(process.stdout, output)
+                            if process.wait():
+                                raise RuntimeError('Database dump failed')
+                        except BaseException:
+                            if process.poll() is None:
+                                process.kill()
+                            process.wait()
+                            raise
         os.chmod(temporary, 0o600)
         with gzip.open(temporary, 'rb') as check:
             tail = b''
