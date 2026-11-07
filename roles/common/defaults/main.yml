@@ -1,6 +1,9 @@
 ---
 # Base packages for every node. No MTA on purpose (sites send no mail).
 common_packages:
+  - bash
+  - bash-completion
+  - util-linux          # runuser PTY and setpriv capability drop
   - acl                 # needed for become_user to unprivileged users
   - apt-transport-https
   - ca-certificates

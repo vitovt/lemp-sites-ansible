@@ -1,0 +1,7 @@
+#!/usr/bin/python3 -I
+"""Enter a site environment without enabling account login."""
+import sys
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
+from site_session import cli
+if __name__ == '__main__':
+    sys.exit(cli('site-shell', sys.argv[1:]))

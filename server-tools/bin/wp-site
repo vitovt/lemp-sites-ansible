@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 """Work with one managed WordPress site and its local code policy."""
 import argparse
 import copy
@@ -102,23 +102,8 @@ def mismatches(s):
 
 def enter(s):
     authorized(s)
-    root = s['base'] / 'htdocs'
-    if root.is_symlink() or not root.is_dir():
-        raise ValueError('Site document root is missing or a symlink')
-    # The account remains nologin for SSH. A root-initiated shell uses Bash directly.
-    rc = '/usr/local/lib/wp-hosting/lib/site-shell.bashrc'
-    env = ['env', '-i', 'HOME=' + str(s['base'] / 'owner-tmp'),
-           'USER=' + s['SITE_USER'], 'LOGNAME=' + s['SITE_USER'],
-           'SITE_DOMAIN=' + s['domain'], 'SITE_USER=' + s['SITE_USER'],
-           'SITE_PHP=' + s['PHP_VERSION'], 'SITE_BASE=' + str(s['base']),
-           'TERM=' + os.environ.get('TERM', 'xterm'),
-           'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-           'GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=user.name',
-           'GIT_CONFIG_VALUE_0=Site operator', 'GIT_CONFIG_KEY_1=user.email',
-           'GIT_CONFIG_VALUE_1=operator@localhost',
-           '/bin/bash', '--noprofile', '--rcfile', rc, '-i']
-    os.chdir(root)
-    os.execvp('runuser', ['runuser', '-u', s['SITE_USER'], '--', *env])
+    from site_session import enter as enter_session
+    enter_session(s['domain'])
 
 
 def show(s, raw=False):

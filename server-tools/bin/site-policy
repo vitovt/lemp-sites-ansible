@@ -1,0 +1,7 @@
+#!/usr/bin/python3 -I
+"""Run a command as the current site owner, without selecting another site."""
+import sys
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
+from site_commands import main
+if __name__ == '__main__':
+    sys.exit(main('site-policy', sys.argv[1:]))

@@ -91,6 +91,7 @@ contents, password option, and optional cleanup after export.
 - [Operations](Docs/OPERATIONS.md): site commands, backup, and restore.
 - [Server backup manager](Docs/BACKUP_MANAGER.md) — snapshots, extraction, portable copies, and workspace cleanup.
 - [Server tools](Docs/SERVER_TOOLS.md): add and deliver server commands.
+- [Site shell](Docs/SITE_SHELL.md): local owner sessions, completion, and command help.
 - [Site code](Docs/SITE_CODE_POLICY.md): `jump-in`, local update holds, and checksum rules.
 - [PHP versions](Docs/PHP_VERSION_SWITCH_SPEC.md): branch changes and recovery.
 - [Security](Docs/SECURITY.md): access model and threat boundaries.

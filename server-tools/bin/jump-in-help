@@ -1,0 +1,7 @@
+#!/usr/bin/python3 -I
+"""Print the site-owner command reference without executing commands."""
+import sys
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
+from site_help import main
+if __name__ == '__main__':
+    sys.exit(main())

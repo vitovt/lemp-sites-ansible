@@ -48,8 +48,13 @@ def sha256_file(path):
 
 
 def read_env(path):
+    return parse_env(Path(path).read_text())
+
+
+def parse_env(text):
+    """Parse literal facts without executing shell or PHP code."""
     values = {}
-    for line in Path(path).read_text().splitlines():
+    for line in text.splitlines():
         if not line or line.startswith('#'):
             continue
         key, sep, raw = line.partition('=')

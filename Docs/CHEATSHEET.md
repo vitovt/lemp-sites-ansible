@@ -19,12 +19,18 @@ user. Run `wp-backup` and `wp-monitor` on the managed server as root.
 
 ```sh
 jump-in example.com
+jump-in-help
+php -v
 git status --short
 wp plugin list
+site-check plugins
 policy                 # Show local rules and choose an action.
 exit
 wp-site check example.com plugins
 ```
+
+Inside the shell, Tab completes commands and component names. Run
+`jump-in-help policy` for policy examples. See [site shell](SITE_SHELL.md).
 
 Use `wp-site policy hold example.com PLUGIN --reason "Local fix"` to block an
 update. Use `wp-site policy allow-file example.com PLUGIN PATH --yes` only

@@ -12,6 +12,8 @@ wp plugin list
 exit
 ```
 
+See [site shell](SITE_SHELL.md) for completion, local checks, history, and `jump-in-help`.
+
 `jump-in` opens Bash as the site owner in `htdocs`. The prompt shows the site,
 owner, and PHP branch. `wp` uses that PHP branch and site path. Git has a
 session-only operator identity. The site account keeps `nologin`; this command
