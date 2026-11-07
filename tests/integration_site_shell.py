@@ -74,6 +74,8 @@ def terminal(command, text='', end='exit', env=None, mask=None, pass_fds=()):
         raise TimeoutError('Terminal output timed out: ' + output.decode(errors='replace'))
     try:
         read_until(b'] $ ')
+        if b'] $ ' not in output:
+            return proc.wait(timeout=10), output.decode(errors='replace')
         if proc.poll() is None:
             for line in text.splitlines():
                 if not line.strip():
@@ -233,16 +235,24 @@ printf 'COMMANDS-DONE\\n'
         self.assertIn('WP-CLI version:', out)
 
     def test_05_modes_unknown_sites_and_unsafe_paths(self):
-        for args in (['jump-in', 'one.example'], ['jump-in', '../one.example'], ['jump-in', 'missing.example'], ['site-shell', '-c', 'id'],
-                     ['site-shell', '--login'], ['site-shell']):
+        # Non-terminal launch is rejected independently of identity/path checks.
+        result = subprocess.run(['/usr/local/sbin/jump-in', 'one.example'], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('interactive terminal', result.stderr)
+        for domain in ('../one.example', 'missing.example'):
+            code, out = terminal(['/usr/local/sbin/jump-in', domain])
+            self.assertEqual(code, 2, out)
+            self.assertNotIn('needs an interactive terminal', out)
+        for args in (['site-shell', '-c', 'id'], ['site-shell', '--login'], ['site-shell']):
             result = subprocess.run(['/usr/local/sbin/' + args[0], *args[1:]], text=True, capture_output=True)
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         root = self.base / 'htdocs'
         root.rename(self.base / 'saved-htdocs')
         root.symlink_to('/root', target_is_directory=True)
         try:
-            result = subprocess.run(['/usr/local/sbin/jump-in', 'one.example'], text=True, capture_output=True)
-            self.assertEqual(result.returncode, 2)
+            code, out = terminal(['/usr/local/sbin/jump-in', 'one.example'])
+            self.assertEqual(code, 2, out)
+            self.assertIn('directory owned by the site', out)
         finally:
             root.unlink()
             (self.base / 'saved-htdocs').rename(root)
