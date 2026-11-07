@@ -109,3 +109,30 @@ python3 tests/run-tools-integration.py \
 
 The test uses an isolated remote `/tmp` prefix. See
 [server tool delivery](SERVER_TOOLS.md) for the tested sequence and file layout.
+
+## Backup manager
+
+Run unit and syntax checks without a server connection:
+
+```sh
+tests/check.sh
+ansible-lint --offline
+```
+
+Run real restic and MariaDB tests in a disposable Docker container:
+
+```sh
+tests/run-backup-manager-integration.sh
+```
+
+The build context contains only `server-tools/`, the `server_tools` role, and the test files.
+It excludes inventories, SSH keys, and controller secrets. Image creation needs package download access.
+The test container has no network and no host mounts. It generates its own repository passwords and databases.
+It is removed after the test. The image remains available for a later run.
+
+Tests cover installation idempotence, single-site and multi-site discovery, deleted sites,
+incomplete snapshots, all extraction scopes, encrypted and plain archives, snapshot copies,
+standard single-site and all-site backups, real MariaDB scratch imports, CLI/TUI, cleanup,
+interruption, and operation-lock conflicts. Unit tests cover path attacks, masking, metadata failures,
+kept/active task protection, and partial command prompts.
+The GitHub Actions `backup-manager` job runs the same container test.

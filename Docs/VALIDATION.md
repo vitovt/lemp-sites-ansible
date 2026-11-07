@@ -345,3 +345,59 @@ Ansible on the VM and locally.
 This test did not reinstall the complete hosting stack or run backup, restore,
 clone, public certificates, or systemd timers from the new layout. The installed
 tools and sites on VM 241 were not replaced. Server 125 was not accessed.
+
+## Backup manager on 2026-11-07
+
+### Passed
+
+- Controller unit suite: 156 tests. All playbook, Python, and shell syntax checks passed.
+- `ansible-lint --offline`: production profile, no failures or lint warnings.
+- Disposable Debian 13 container: 9 integration tests passed. Runtime networking was disabled.
+  The build context excluded inventories, keys, and controller secrets. There were no host mounts.
+- Real restic tests: single-site and multi-site snapshots, deleted sites, incomplete snapshots,
+  all five extraction scopes, literal special-character paths, manifest checks, plain/GPG exports,
+  archive contents and checksums, copied snapshot IDs, and destination data checks.
+- Real MariaDB tests: standard single-site and all-site backup functions, scratch imports,
+  required WordPress table checks, and removal of scratch databases after verification.
+  Database names, data, and repository passwords were generated inside the container.
+- Installed CLI and terminal-menu startup/exit, compare, status fallback, retention display,
+  preferences, all-snapshot verification, and dry-run snapshot deletion.
+- Interrupted export data remained visible. Cleanup removed only selected task data.
+  A concurrent operation was rejected by the shared lock. Live fixture files stayed unchanged.
+- Unit regressions: path traversal, symlinks, private metadata, active/kept workspace protection,
+  corrupt/missing SQL and manifests, secret masking/disclosure, partial prompts, preview-only behavior,
+  one confirmation per action, cancellation state, failed-task logs, and separate destination credentials.
+- `server_tools` installed the manager automatically. A repeat container installation had `changed=0`.
+- After the user reconfirmed VM 241 as disposable, isolated `/tmp` delivery passed four stages:
+  initial copy, unchanged repeat, changed command, and retained remote command after source removal.
+  The isolated `wp-backup-manager --help` command also passed. Installed tools and sites were not changed.
+- Server 125 was not accessed.
+
+### Resolved failures
+
+- A synthetic table manifest and MariaDB returned the same names in different orders.
+  Verification now compares names without depending on SQL collation order.
+- Real dumps exposed unclosed subprocess pipes. Dump failure now closes, kills, and reaps the child.
+- Minimal replacement environments can lack `systemctl` and `journalctl`.
+  Status now reports these checks as unavailable instead of stopping the report.
+- The first test harness used an unescaped SQL wildcard and lacked permission to stop its own
+  MariaDB child after a UID change. The query is parameterized and the container has `CAP_KILL`.
+
+### Not tested
+
+- Production data, server 125, LXC deployment, or a complete hosting-stack reinstall.
+- Remote S3/SFTP/cloud accounts, cross-host network interruption, Telegram delivery,
+  actual systemd timer scheduling, backup mount failure, disk exhaustion, or a power loss.
+- A real WordPress application after recovery. Recovery is extraction-only by design.
+- GitHub-hosted execution of the new CI job. Its commands passed locally.
+
+### Remaining limits
+
+- Selected symlinks and special files are rejected. Select a narrower tree for extraction.
+- Legacy file manifests prove availability, not per-file content hashes. Restic read-back
+  verifies extracted content against repository data. Missing metadata is reported separately.
+- Two remote repositories with different backend credentials require an intermediate local repository.
+  The manager rejects conflicting direct-copy credentials. This transfer path needs a real cloud test.
+- Unregistered legacy workspaces require manual review and deletion. Normal cleanup does not remove them.
+- Exports retain their private extraction workspace. Review allocated space before and after export.
+- Recovery kits that include repository passwords are not implemented. Standard archives omit them.

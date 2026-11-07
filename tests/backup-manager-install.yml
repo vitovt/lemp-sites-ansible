@@ -1,0 +1,13 @@
+---
+- name: Test command delivery in a disposable container
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    server_tools_source: /source/server-tools
+  roles:
+    - server_tools
+  tasks:
+    - name: Run manager help from the installed command link
+      ansible.builtin.command: /usr/local/sbin/wp-backup-manager --help
+      changed_when: false
