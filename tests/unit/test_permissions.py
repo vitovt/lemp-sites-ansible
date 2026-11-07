@@ -53,8 +53,7 @@ class PermissionTests(unittest.TestCase):
             outside.write_text('private')
             outside.chmod(0o600)
             (base / 'htdocs/wp-content/uploads/leak').symlink_to(outside)
-            with self.assertRaises(OSError):
-                self.invoke(base)
+            self.assertEqual(self.invoke(base), 1)
             self.assertEqual(outside.stat().st_mode & 0o7777, 0o600)
 
     def test_hard_link_is_rejected(self):

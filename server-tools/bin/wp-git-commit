@@ -7,25 +7,31 @@ import sys
 sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from wp_hosting import run, site
 
-p = argparse.ArgumentParser(description=__doc__)
-p.add_argument('domain')
-p.add_argument('message', nargs='?', default='reviewed snapshot')
-a = p.parse_args()
-s = site(a.domain)
-os.umask(0o027)
-root = s['base'] / 'htdocs'
+from cli_diagnostics import run_cli
 
-def git(*args):
-    return run(['runuser', '-u', s['SITE_USER'], '--', 'git', '-C', str(root), *args])
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('domain')
+    p.add_argument('message', nargs='?', default='reviewed snapshot')
+    a = p.parse_args()
+    s = site(a.domain)
+    os.umask(0o027)
+    root = s['base'] / 'htdocs'
 
-if not (root / '.git').exists():
-    git('init', '-q')
-git('add', '-A')
-result = run(['runuser', '-u', s['SITE_USER'], '--', 'git', '-C', str(root), 'diff', '--cached', '--quiet'], check=False)
-if result.returncode == 0:
-    print('no changes')
-elif result.returncode == 1:
-    git('-c', 'user.name=wp-git-commit', '-c', 'user.email=root@localhost', 'commit', '-q', '-m', a.message)
-    print(git('log', '-1', '--oneline').stdout.decode().strip())
-else:
-    raise SystemExit('Cannot inspect the Git index')
+    def git(*args):
+        return run(['runuser', '-u', s['SITE_USER'], '--', 'git', '-C', str(root), *args])
+
+    if not (root / '.git').exists():
+        git('init', '-q')
+    git('add', '-A')
+    result = run(['runuser', '-u', s['SITE_USER'], '--', 'git', '-C', str(root), 'diff', '--cached', '--quiet'], check=False)
+    if result.returncode == 0:
+        print('no changes')
+    elif result.returncode == 1:
+        git('-c', 'user.name=wp-git-commit', '-c', 'user.email=root@localhost', 'commit', '-q', '-m', a.message)
+        print(git('log', '-1', '--oneline').stdout.decode().strip())
+    else:
+        raise SystemExit('Cannot inspect the Git index')
+
+if __name__ == '__main__':
+    sys.exit(run_cli('wp-git-commit', main))

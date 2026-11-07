@@ -3,5 +3,7 @@
 import sys
 sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from site_help import main
+from cli_diagnostics import run_cli
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(run_cli('jump-in-help', main))

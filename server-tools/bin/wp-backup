@@ -15,6 +15,7 @@ import tempfile
 import time
 
 sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
+from cli_diagnostics import hint, HintParser
 from wp_hosting import (Database, SITES, backup_site, clone, load, operation_lock, prefix,
     read_env, require_wordpress_tables, restore_database, remove_site, sha256_file, run, site)
 
@@ -134,7 +135,7 @@ def verify(sites, env, db):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = HintParser(description=__doc__)
     parser.add_argument('action', nargs='?', default='')
     parser.add_argument('arguments', nargs='*')
     parser.add_argument('--yes', action='store_true')
@@ -206,5 +207,6 @@ if __name__ == '__main__':
         main()
     except (Exception, KeyboardInterrupt) as exc:
         print('FAIL wp-backup: ' + str(exc), file=sys.stderr)
+        hint('wp-backup', str(exc))
         run(['tg-alert', 'wp-backup failed; inspect the service log'], check=False)
         sys.exit(1)

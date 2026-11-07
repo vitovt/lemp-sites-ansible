@@ -17,7 +17,8 @@ def wp_command(s, args):
 
 
 def run_current(s, command):
-    return subprocess.run(command, env=environment(s), cwd=docroot(s), check=False).returncode
+    result = subprocess.run(command, env=environment(s), cwd=docroot(s), check=False).returncode
+    return 128 - result if result < 0 else result
 
 
 def check(s, args):
@@ -70,17 +71,17 @@ def main(name, argv):
         s = current_site()
         os.umask(0o027)
         if name == 'site-php':
-            os.execve(php_path(s), [php_path(s), *argv], environment(s))
+            return run_current(s, [php_path(s), *argv])
         elif name == 'site-wp':
             command = wp_command(s, argv)
             os.chdir(docroot(s))
-            os.execve(command[0], command, environment(s))
+            return run_current(s, command)
         elif name == 'site-policy':
             action = argv[0] if argv else 'menu'
             if action not in POLICY_ACTIONS:
                 raise ValueError('Unknown policy action; use site-policy --help')
             command = ['/usr/bin/sudo', '-n', '/usr/local/sbin/wp-site', 'policy', action, s['domain'], *argv[1:]]
-            os.execve(command[0], command, environment(s))
+            return run_current(s, command)
         else:
             return check(s, argv)
         return 0

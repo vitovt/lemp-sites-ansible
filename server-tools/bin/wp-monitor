@@ -16,6 +16,10 @@ CERT_MIN_DAYS=14 DISK_MIN_FREE_PCT=10 CONTENT_EXCLUDE_TYPES="" CONTENT_ATTACHMEN
 DROPINS='index\.php\|object-cache\.php\|advanced-cache\.php\|db\.php'
 . /etc/wp-monitor.conf
 
+trap 'status=$?; if [ "$status" -ne 0 ] && [ "$status" -ne 130 ]; then
+    echo "HINT Run wp-monitor --check SITE for details; wp-site check SITE plugins for checksum differences. Review Git with jump-in SITE, then git status --short and git diff." >&2
+    echo "HINT Inspect Nginx/PHP-FPM logs for service failures. Use wp-monitor --ack SITE only after reviewing intentional administrator changes. Do not accept unknown code." >&2
+fi' EXIT
 MODE=nightly
 case "${1:-}" in
     --check) MODE=check; shift ;;
@@ -31,7 +35,16 @@ has() { case " $CHECKS " in *" $1 "*) return 0;; esac; return 1; }
 # Result lines: "PASS|FAIL|SKIP <site> <check>[: detail]"
 ok()   { echo "PASS $SITE $1${2:+: $2}"; }
 skip() { echo "SKIP $SITE $1${2:+: $2}"; }
-p()    { echo "FAIL $SITE $1: $2"; failed=1; report+="  - $SITE $1: $2"$'\n'; }
+p() {
+    echo "FAIL $SITE $1: $2"; failed=1; report+="  - $SITE $1: $2"$'\n'
+    case "$1" in
+        plugin_checksums) echo "HINT Run wp-site check SITE plugins. Compare each difference with trusted code before adding local policy exceptions." >&2 ;;
+        git_status) echo "HINT Run jump-in SITE, then git status --short and git diff. Commit only reviewed paths; do not accept unknown changes." >&2 ;;
+        admin_users) echo "HINT Review WordPress administrators. After you verify intentional changes, use wp-monitor --ack SITE." >&2 ;;
+        core_checksums|stray_php|php_in_writable) echo "HINT Review the listed files and trusted WordPress checksums. Run wp-monitor --files SITE. Preserve unknown files for investigation; do not delete or accept them automatically." >&2 ;;
+        *) echo "HINT Run wp-site check SITE. Check the relevant Nginx, PHP-FPM, MariaDB, certificate, or Valkey service and its logs." >&2 ;;
+    esac
+}
 # WordPress's own "Silence is golden." index.php (or an empty one) is fine anywhere.
 silence() {
     [ "$(basename "$1")" = index.php ] && [ "$(stat -c %s "$1")" -le 64 ] || return 1

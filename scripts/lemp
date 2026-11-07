@@ -131,5 +131,8 @@ def main():
     ], cwd=ROOT)
 
 
+sys.path.insert(0, str(ROOT / 'server-tools/lib'))
+from cli_diagnostics import run_cli
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(run_cli('lemp', main))

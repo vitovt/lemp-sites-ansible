@@ -3,5 +3,7 @@
 import sys
 sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from site_commands import main
+from cli_diagnostics import run_cli
+
 if __name__ == '__main__':
-    sys.exit(main('site-policy', sys.argv[1:]))
+    sys.exit(run_cli('site-policy', lambda: main('site-policy', sys.argv[1:])))

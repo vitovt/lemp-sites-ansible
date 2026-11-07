@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -56,5 +57,7 @@ def main():
     return 0
 
 
+from cli_diagnostics import run_cli
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(run_cli('tg-alert', main))

@@ -155,11 +155,11 @@ class SessionTests(unittest.TestCase):
                     commands.wp_command(self.s, [flag])
 
     def test_policy_only_inserts_uid_site_into_narrow_interface(self):
-        with patch.object(commands, 'current_site', return_value=self.s), patch.object(commands.os, 'umask'), patch.object(commands.os, 'execve') as execute:
+        with patch.object(commands, 'current_site', return_value=self.s), patch.object(commands, 'docroot', return_value=Path('/srv/sites/first.example/htdocs')), patch.object(commands.os, 'umask'), patch.object(commands.subprocess, 'run', return_value=type('Result', (), {'returncode': 0})()) as execute:
             self.assertEqual(commands.main('site-policy', ['hold', 'plug', '--reason', 'Local fix']), 0)
-        cmd = execute.call_args.args[1]
+        cmd = execute.call_args.args[0]
         self.assertEqual(cmd, ['/usr/bin/sudo', '-n', '/usr/local/sbin/wp-site', 'policy', 'hold', 'first.example', 'plug', '--reason', 'Local fix'])
-        self.assertNotIn('SUDO_USER', execute.call_args.args[2])
+        self.assertNotIn('SUDO_USER', execute.call_args.kwargs['env'])
 
     def test_inherited_file_descriptors_are_closed_in_a_child(self):
         with tempfile.TemporaryFile() as stream:

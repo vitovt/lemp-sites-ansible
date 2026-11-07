@@ -180,9 +180,12 @@ def main():
     return 0
 
 
+sys.path.insert(0, str(ROOT / 'server-tools/lib'))
+from cli_diagnostics import run_cli
+
 if __name__ == '__main__':
     try:
-        sys.exit(main())
+        sys.exit(run_cli('site', main))
     except (ValueError, RuntimeError, OSError, yaml.YAMLError, RoundTripError) as exc:
         print('error: ' + str(exc), file=sys.stderr)
         sys.exit(1)

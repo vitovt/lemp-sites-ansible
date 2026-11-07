@@ -19,6 +19,7 @@ import tarfile
 import time
 import uuid
 
+from cli_diagnostics import hint, HintParser
 from backup_recovery import regular, relative_path, verify_manifest
 from wp_hosting import DOMAIN, SITES, operation_lock, read_env, run, sha256_file
 
@@ -615,7 +616,7 @@ def preview(commands, notes=(), *, show_secrets=False):
 
 
 def parser():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+    p = HintParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''Examples (run as root):
   wp-backup-manager
   wp-backup-manager list --site example.com
@@ -1122,6 +1123,7 @@ def tui(args, env):
                 print('Cancelled.')
             except (ValueError, RuntimeError, OSError) as exc:
                 print('FAIL:', safe_text(exc), file=sys.stderr)
+                hint('wp-backup-manager', str(exc))
     finally:
         print('RECOVERY AND EXPORT STORAGE AT EXIT')
         tasks.show()
@@ -1154,4 +1156,5 @@ def entrypoint():
     except Exception as exc:
         # Subprocess diagnostics contain no command output. Paths are sanitized for terminals.
         print('FAIL wp-backup-manager:', safe_text(exc), file=sys.stderr)
+        hint('wp-backup-manager', str(exc))
         return 2

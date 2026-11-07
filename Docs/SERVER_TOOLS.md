@@ -47,3 +47,23 @@ The test uses a unique remote `/tmp/wp-tool-delivery-*` directory. It tests
 new commands, changed content, permissions, nested libraries, cache exclusion,
 repeat runs, and retention of commands removed from the source. It leaves the
 isolated prefix for inspection. It does not replace installed site tools.
+
+## Manual command failures
+
+Manual tools print `HINT` lines after a failure. Hints give review steps and
+commands. They do not run repairs, accept changed code, or bypass a safety check.
+Controller commands `scripts/lemp` and `scripts/site` use the same library.
+
+Hints go to stderr. Monitor result lines stay on stdout for Ansible. Existing
+usage and child exit codes remain available. Ctrl-C is cancellation. Site-owner
+commands keep the current UID and trusted site environment. A foreground child
+lets the wrapper report failed PHP, WP-CLI, or policy commands.
+
+The shared library is `server-tools/lib/cli_diagnostics.py`. New Python tools
+can call `run_cli(TOOL, callback)`. Catch operational exceptions with safe local
+messages. Do not print raw subprocess arguments, output, tokens, or database
+client exceptions. Add a tool-specific hint when you add a new command.
+
+`SITE`, `SERVER`, and `PATH` in a hint are placeholders. Replace them before use.
+Review files before a commit, checksum exception, administrator acknowledgement,
+or permission repair. Delivery alone does not grant sudo or secret access.

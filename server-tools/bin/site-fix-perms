@@ -8,66 +8,72 @@ import sys
 sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from wp_hosting import site
 
-p = argparse.ArgumentParser(description=__doc__)
-p.add_argument('domain')
-p.add_argument('--check', action='store_true')
-a = p.parse_args()
-s = site(a.domain)
-owner = pwd.getpwnam(s['SITE_USER'])
-runtime = pwd.getpwnam(s['SITE_USER'] + '-php')
-root = s['base'] / 'htdocs'
-if root.is_symlink():
-    raise SystemExit('The document root must not be a symlink')
-changed = 0
+from cli_diagnostics import run_cli
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('domain')
+    p.add_argument('--check', action='store_true')
+    a = p.parse_args()
+    s = site(a.domain)
+    owner = pwd.getpwnam(s['SITE_USER'])
+    runtime = pwd.getpwnam(s['SITE_USER'] + '-php')
+    root = s['base'] / 'htdocs'
+    if root.is_symlink():
+        raise SystemExit('The document root must not be a symlink')
+    changed = 0
 
 
-def apply(fd, relative):
-    global changed
-    info = os.fstat(fd)
-    if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
-        raise SystemExit('Refusing a non-regular file: ' + relative)
-    if stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
-        raise SystemExit('Refusing a hard link: ' + relative)
-    writable = any(relative == f'wp-content/{d}' or relative.startswith(f'wp-content/{d}/') for d in ['uploads', 'cache', 'upgrade'])
-    mode = (0o2770 if writable else 0o2750) if stat.S_ISDIR(info.st_mode) else (0o660 if writable else 0o640)
-    # PHP creates uploads and cache files as <site>-php. Their umask can make
-    # files 0644 rather than the repair mode 0660. Accept safe runtime modes
-    # here; never relax ownership or modes for executable site code.
-    if a.check and writable and info.st_uid in (owner.pw_uid, runtime.pw_uid) and info.st_gid == owner.pw_gid:
-        current = info.st_mode & 0o7777
-        if stat.S_ISREG(info.st_mode):
-            safe = (current & 0o7000 == 0 and current & 0o111 == 0 and
-                    current & 0o002 == 0 and current & 0o440 == 0o440)
-        else:
-            safe = (current & 0o5000 == 0 and current & 0o002 == 0 and
-                    current & 0o550 == 0o550)
-        if safe:
-            return
-    if a.check and (relative == '.git' or relative.startswith('.git/')):
-        if info.st_uid == owner.pw_uid and not info.st_mode & 0o027:
-            return
-    if info.st_uid != owner.pw_uid or info.st_gid != owner.pw_gid or info.st_mode & 0o7777 != mode:
-        changed += 1
-        if not a.check:
-            os.fchown(fd, owner.pw_uid, owner.pw_gid)
-            os.fchmod(fd, mode)
-        elif changed <= 10:
-            print('unsafe permissions: ' + relative)
+    def apply(fd, relative):
+        nonlocal changed
+        info = os.fstat(fd)
+        if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+            raise SystemExit('Refusing a non-regular file: ' + relative)
+        if stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
+            raise SystemExit('Refusing a hard link: ' + relative)
+        writable = any(relative == f'wp-content/{d}' or relative.startswith(f'wp-content/{d}/') for d in ['uploads', 'cache', 'upgrade'])
+        mode = (0o2770 if writable else 0o2750) if stat.S_ISDIR(info.st_mode) else (0o660 if writable else 0o640)
+        # PHP creates uploads and cache files as <site>-php. Their umask can make
+        # files 0644 rather than the repair mode 0660. Accept safe runtime modes
+        # here; never relax ownership or modes for executable site code.
+        if a.check and writable and info.st_uid in (owner.pw_uid, runtime.pw_uid) and info.st_gid == owner.pw_gid:
+            current = info.st_mode & 0o7777
+            if stat.S_ISREG(info.st_mode):
+                safe = (current & 0o7000 == 0 and current & 0o111 == 0 and
+                        current & 0o002 == 0 and current & 0o440 == 0o440)
+            else:
+                safe = (current & 0o5000 == 0 and current & 0o002 == 0 and
+                        current & 0o550 == 0o550)
+            if safe:
+                return
+        if a.check and (relative == '.git' or relative.startswith('.git/')):
+            if info.st_uid == owner.pw_uid and not info.st_mode & 0o027:
+                return
+        if info.st_uid != owner.pw_uid or info.st_gid != owner.pw_gid or info.st_mode & 0o7777 != mode:
+            changed += 1
+            if not a.check:
+                os.fchown(fd, owner.pw_uid, owner.pw_gid)
+                os.fchmod(fd, mode)
+            elif changed <= 10:
+                print('unsafe permissions: ' + relative)
 
 
-# fwalk does not follow directory symlinks. O_NOFOLLOW pins each file inode.
-# This prevents a PHP process from redirecting root chmod through a writable path.
-for directory, directories, files, directory_fd in os.fwalk(root, follow_symlinks=False):
-    relative = os.path.relpath(directory, root)
-    apply(directory_fd, relative)
-    for name in directories:
-        if stat.S_ISLNK(os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode):
-            raise SystemExit('Refusing a directory symlink: ' + name)
-    for name in files:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
-        try:
-            apply(fd, os.path.relpath(os.path.join(directory, name), root))
-        finally:
-            os.close(fd)
-print(f'{"unsafe" if a.check else "fixed"}: {changed}')
-sys.exit(1 if a.check and changed else 0)
+    # fwalk does not follow directory symlinks. O_NOFOLLOW pins each file inode.
+    # This prevents a PHP process from redirecting root chmod through a writable path.
+    for directory, directories, files, directory_fd in os.fwalk(root, follow_symlinks=False):
+        relative = os.path.relpath(directory, root)
+        apply(directory_fd, relative)
+        for name in directories:
+            if stat.S_ISLNK(os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode):
+                raise SystemExit('Refusing a directory symlink: ' + name)
+        for name in files:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+            try:
+                apply(fd, os.path.relpath(os.path.join(directory, name), root))
+            finally:
+                os.close(fd)
+    print(f'{"unsafe" if a.check else "fixed"}: {changed}')
+    sys.exit(1 if a.check and changed else 0)
+
+if __name__ == '__main__':
+    sys.exit(run_cli('site-fix-perms', main))

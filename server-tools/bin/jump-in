@@ -3,5 +3,7 @@
 import sys
 sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from site_session import cli
+from cli_diagnostics import run_cli
+
 if __name__ == '__main__':
-    sys.exit(cli('jump-in', sys.argv[1:]))
+    sys.exit(run_cli('jump-in', lambda: cli('jump-in', sys.argv[1:])))

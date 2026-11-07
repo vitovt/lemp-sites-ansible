@@ -290,9 +290,7 @@ def parse(argv):
     return 0
 
 
+from cli_diagnostics import run_cli
+
 if __name__ == '__main__':
-    try:
-        sys.exit(parse(sys.argv[1:]))
-    except (ValueError, PermissionError, OSError) as exc:
-        print('wp-site: ' + str(exc), file=sys.stderr)
-        sys.exit(2)
+    sys.exit(run_cli('wp-site', lambda: parse(sys.argv[1:]), failure_code=2))
