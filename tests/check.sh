@@ -19,6 +19,7 @@ for root in ['scripts', 'library', 'tests', 'roles', 'server-tools']:
         data = path.read_text(errors='replace')
         if path.suffix == '.py' or data.startswith(('#!/usr/bin/env python3', '#!/usr/bin/python')):
             ast.parse(data, filename=str(path))
-        elif data.startswith(('#!/bin/bash', '#!/usr/bin/env bash', '#!/bin/sh')):
-            subprocess.run(['bash' if 'bash' in data.splitlines()[0] else 'sh', '-n', str(path)], check=True)
+        elif path.suffix in ('.bash', '.bashrc') or data.startswith(('#!/bin/bash', '#!/usr/bin/env bash', '#!/bin/sh')):
+            shell = 'bash' if path.suffix in ('.bash', '.bashrc') or 'bash' in data.splitlines()[0] else 'sh'
+            subprocess.run([shell, '-n', str(path)], check=True)
 PY

@@ -136,3 +136,21 @@ standard single-site and all-site backups, real MariaDB scratch imports, CLI/TUI
 interruption, and operation-lock conflicts. Unit tests cover path attacks, masking, metadata failures,
 kept/active task protection, and partial command prompts.
 The GitHub Actions `backup-manager` job runs the same container test.
+
+## Local site shell
+
+```sh
+python3 -m unittest discover -s tests/unit -p 'test_site_*.py'
+tests/run-site-shell-integration.sh
+```
+
+The container build includes only public tools, the delivery role, the existing narrow policy task,
+and test files. It downloads the pinned WP-CLI artifact and checks the PHP role's SHA-512 value.
+Runtime networking is disabled. No inventory, SSH key, production secret, or host directory is supplied.
+
+The PTY suite creates two site owners and separate runtime users. It checks real IDs and groups,
+private-file access, a hostile environment and umask, PHP selection, actual WP-CLI and Git,
+policy authorization, completion, help, exit/EOF/signals, and repeat installation.
+The second PHP branch is a generated test executable; it tests branch selection, not a second PHP release.
+Checksum policy parsing and owner execution are covered by unit tests. The PTY suite does not install
+or activate a WordPress application or contact WordPress.org during checks.

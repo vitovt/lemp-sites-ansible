@@ -24,3 +24,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test backup management in a disposable container
         run: tests/run-backup-manager-integration.sh
+
+  site-shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test local site sessions in a disposable container
+        run: tests/run-site-shell-integration.sh

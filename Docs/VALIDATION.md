@@ -401,3 +401,50 @@ tools and sites on VM 241 were not replaced. Server 125 was not accessed.
 - Unregistered legacy workspaces require manual review and deletion. Normal cleanup does not remove them.
 - Exports retain their private extraction workspace. Review allocated space before and after export.
 - Recovery kits that include repository passwords are not implemented. Standard archives omit them.
+
+## Local site shell on 2026-11-07
+
+### Passed
+
+- Controller suite: 179 unit tests. Playbook, Python, shell, and shared Bash profile syntax checks passed.
+- `ansible-lint --offline` passed the production profile.
+- Eleven PTY integration tests passed in a disposable Debian 13 container.
+  Runtime networking was disabled. The container received no inventories, keys, host mounts, or production secrets.
+- Real site owners and runtime accounts: real/effective/saved UID and GID, explicit supplementary groups,
+  current directory, environment cleanup, and inherited umask isolation.
+- Another site's private file and a root private file were unreadable. General sudo and another site's
+  policy were denied. The PHP runtime could not enter the owner environment or write the code fixture.
+- Actual PHP 8.4, pinned WP-CLI 2.12.0 (`--info`), Git init/add/commit/status, and owner code-check commands.
+- PHP selection from changed facts used a generated `php9.7` test executable. Environment values did not
+  select another PHP branch or site. The fixture did not test a real PHP 9.7 release.
+- The current policy sudoers task was reused. Own-site policy writes passed; cross-site writes and
+  a privileged Git command were denied.
+- Completion, summary help, detailed help, full help, direct UID-bound entry, and one initial Bash session.
+- Exit, EOF, SIGHUP, and SIGTERM closed the session. The parent remained root.
+  Idle signal status follows the shell and terminal proxy.
+- An older `0755` owner cache was tightened to `0700`; existing cache data remained.
+  History stayed `0600`. Repeated delivery had `changed=0` and preserved user profile/history bytes.
+  Both account login shells stayed `/usr/sbin/nologin`.
+- The owner shell used a separate PTY from its root parent.
+- Inherited non-standard descriptors were closed; an open root-only fixture descriptor did not reach the owner.
+- Unit regressions cover hostile environment values, saved root IDs, process capabilities, unsafe paths,
+  runtime identity, unsupported shell modes, literal facts, current-owner checks, and completion context.
+
+### Resolved test failures
+
+- The restricted test container cannot chmod another UID's file after chown. Fixture setup now sets mode first.
+- Sudo can consume queued PTY input. The driver now sends one command at a time and waits for its result.
+- The terminal driver missed a prompt already present in its read buffer. It now checks buffered output first.
+- Signal status differs between idle Bash and the PTY proxy, including proxy termination by the system.
+  Signal tests require timely closure, no surviving owner Bash, and preservation of the parent session;
+  they do not assume a fixed numeric proxy status.
+- The private-PTY test needs `CAP_FOWNER` so runuser can set the new terminal owner and mode.
+
+### Not tested or not implemented
+
+- No server deployment was run. Servers 125 and 241 were not accessed for this change.
+- A complete WordPress application, database, upstream checksum network access, and a real second PHP branch
+  were not tested in the PTY suite. Existing policy behavior and the new owner path passed unit tests.
+- Jailkit, chroot, SSH authentication, remote command mode, SFTP, and system login-shell changes are not implemented.
+  The future filesystem and identity contract is described in `SITE_SHELL.md`.
+- GitHub-hosted execution of the added CI job was not run. The same local container command passed.
