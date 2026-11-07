@@ -181,12 +181,21 @@ def allowed_mismatch(base, policy, item):
         return False
 
 
-def git_baseline_issues(base, user, names):
+def identity_prefix(user, *, current=False):
+    if current:
+        import pwd
+        if os.getuid() == 0 or os.geteuid() != os.getuid() or pwd.getpwuid(os.getuid()).pw_name != user:
+            raise PermissionError('Current-user checks require the matching unprivileged owner')
+        return ['env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin']
+    return ['runuser', '-u', user, '--', 'env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin']
+
+
+def git_baseline_issues(base, user, names, *, as_current_user=False):
     issues = []
     for name in sorted(names):
         path = 'wp-content/plugins/' + name
-        prefix = ['runuser', '-u', user, '--', 'env', '-i',
-                  'PATH=/usr/local/bin:/usr/bin:/bin', 'git', '-C', str(Path(base) / 'htdocs')]
+        prefix = identity_prefix(user, current=as_current_user) + [
+            'HOME=' + str(Path(base) / 'owner-tmp'), 'git', '-C', str(Path(base) / 'htdocs')]
         tracked = subprocess.run(prefix + ['ls-files', '--', path], text=True, capture_output=True)
         dirty = subprocess.run(prefix + ['status', '--porcelain', '--', path], text=True, capture_output=True)
         if tracked.returncode or not tracked.stdout.strip() or dirty.returncode or dirty.stdout.strip():
@@ -194,18 +203,24 @@ def git_baseline_issues(base, user, names):
     return issues
 
 
-def check_plugins(base, user, php_version, wpcli):
+def check_plugins(base, user, php_version, wpcli, *, as_current_user=False, component=None, details=False):
     """Return a PASS/FAIL line for the site's plugin checksum check."""
     import json
     base = Path(base)
     policy = load(base)
-    prefix = ['runuser', '-u', user + '-php', '--', 'env', '-i',
-              'PATH=/usr/local/bin:/usr/bin:/bin',
-              'HOME=' + str(base / 'tmp'), 'WP_CLI_CACHE_DIR=' + str(base / 'tmp/wp-cli-cache'),
+    if component and not SLUG.fullmatch(component):
+        raise ValueError('Invalid plugin slug')
+    home = base / ('owner-tmp' if as_current_user else 'tmp')
+    prefix = identity_prefix(user if as_current_user else user + '-php', current=as_current_user) + [
+              'HOME=' + str(home), 'WP_CLI_CACHE_DIR=' + str(home / 'wp-cli-cache'),
               'php' + php_version, wpcli, '--path=' + str(base / 'htdocs'),
               '--skip-plugins', '--skip-themes', '--no-color']
-    result = subprocess.run(prefix + ['plugin', 'verify-checksums', '--all', '--format=json'],
+    result = subprocess.run(prefix + ['plugin', 'verify-checksums', component or '--all', '--format=json'],
                             text=True, capture_output=True, timeout=120)
+    if details:
+        for line in result.stderr.splitlines():
+            if 'Could not retrieve the checksums' in line:
+                print('UNAVAILABLE ' + line.removeprefix('Warning: '))
     expected_stderr = (
         r"Warning: Couldn't fetch response from https://downloads\.wordpress\.org/plugin-checksums/.* \(HTTP code 404\)\.",
         r'Warning: Could not retrieve the checksums for version .* skipping\.',
@@ -222,20 +237,21 @@ def check_plugins(base, user, php_version, wpcli):
     if rows is not None and not isinstance(rows, list):
         rows = None
     git_modes = {name for name, rule in policy['plugins'].items()
-                 if rule.get('checksums', {}).get('mode') == 'git'}
+                 if (component is None or name == component) and rule.get('checksums', {}).get('mode') == 'git'}
     expected = {(name, relative) for name, rule in policy['plugins'].items()
+                if component is None or name == component
                 for relative in rule.get('checksums', {}).get('exceptions', {})}
     if rows is None:
         if expected:
             return 'FAIL plugin_checksums: expected local exceptions are absent from checker output'
-        if git_baseline_issues(base, user, git_modes):
+        if git_baseline_issues(base, user, git_modes, as_current_user=as_current_user):
             return 'FAIL plugin_checksums: local Git baseline missing or dirty'
         inventory = subprocess.run(prefix + ['plugin', 'list', '--format=json'],
                                    text=True, capture_output=True, timeout=120)
         match = re.fullmatch(r'Success: Verified (\d+) of (\d+) plugins\.\s*', result.stdout)
         try:
             plugins = json.loads(inventory.stdout)
-            count = sum(p.get('status') in ('active', 'inactive') for p in plugins)
+            count = sum(p.get('status') in ('active', 'inactive') and (component is None or p.get('name') == component) for p in plugins)
         except (ValueError, TypeError, AttributeError):
             count = -1
         skipped_warnings = len(re.findall(r'Could not retrieve the checksums for version .* skipping\.', result.stderr))
@@ -260,7 +276,14 @@ def check_plugins(base, user, php_version, wpcli):
     for name, relative in sorted(expected - seen):
         unexpected.append({'plugin_name': name, 'file': relative,
                            'message': 'expected local exception is absent or changed'})
-    unexpected.extend(git_baseline_issues(base, user, git_modes))
+    unexpected.extend(git_baseline_issues(base, user, git_modes, as_current_user=as_current_user))
+    if details:
+        for row in accepted:
+            if isinstance(row, dict):
+                print(f'ACCEPTED {row.get("plugin_name")} {row.get("file")}: {row.get("message")}')
+        for row in unexpected:
+            if isinstance(row, dict):
+                print(f'FAIL {row.get("plugin_name")} {row.get("file")}: {row.get("message")}')
     if unexpected:
         detail = '; '.join(f'{r.get("plugin_name", "?")}/{r.get("file", "?")}: {r.get("message", "?")}'
                            for r in unexpected[:5] if isinstance(r, dict))
