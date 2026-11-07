@@ -5,7 +5,7 @@ After=nginx.service mariadb.service
 
 [Service]
 Type=oneshot
-ExecStart={{ wp_monitor_bin }}
+ExecStart=/usr/local/sbin/wp-monitor
 TimeoutStartSec=20min
 Nice=10
 IOSchedulingClass=idle

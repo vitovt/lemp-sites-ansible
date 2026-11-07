@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location('code_policy', ROOT / 'roles/site/files/code_policy.py')
+spec = importlib.util.spec_from_file_location('code_policy', ROOT / 'server-tools/lib/code_policy.py')
 policy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(policy)
 

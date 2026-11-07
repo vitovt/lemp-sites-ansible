@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'library'))
-spec = importlib.util.spec_from_file_location('operations', ROOT / 'roles/site/files/wp_hosting.py')
+spec = importlib.util.spec_from_file_location('operations', ROOT / 'server-tools/lib/wp_hosting.py')
 ops = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ops)
 
@@ -104,7 +104,7 @@ class OperationTests(unittest.TestCase):
     def test_partial_restic_backup_cannot_prune_or_be_complete(self):
         import importlib.machinery
         import types
-        loader = importlib.machinery.SourceFileLoader('backup_cli', str(ROOT / 'roles/backup_restic/files/wp-backup'))
+        loader = importlib.machinery.SourceFileLoader('backup_cli', str(ROOT / 'server-tools/bin/wp-backup'))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {'wp_hosting':ops}):
@@ -121,7 +121,7 @@ class OperationTests(unittest.TestCase):
     def test_copy_failure_does_not_mark_backup_complete(self):
         import importlib.machinery
         import types
-        loader = importlib.machinery.SourceFileLoader('backup_copy_cli', str(ROOT / 'roles/backup_restic/files/wp-backup'))
+        loader = importlib.machinery.SourceFileLoader('backup_copy_cli', str(ROOT / 'server-tools/bin/wp-backup'))
         module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
         with patch.dict(sys.modules, {'wp_hosting': ops}):
             loader.exec_module(module)
@@ -158,7 +158,7 @@ class OperationTests(unittest.TestCase):
 
     def test_missing_backup_path_stops_before_snapshot_or_prune(self):
         import importlib.machinery
-        loader = importlib.machinery.SourceFileLoader('missing_path_cli', str(ROOT / 'roles/backup_restic/files/wp-backup'))
+        loader = importlib.machinery.SourceFileLoader('missing_path_cli', str(ROOT / 'server-tools/bin/wp-backup'))
         module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
         with patch.dict(sys.modules, {'wp_hosting':ops}):
             loader.exec_module(module)
@@ -173,7 +173,7 @@ class OperationTests(unittest.TestCase):
         import importlib.machinery
         import os
         import time
-        loader = importlib.machinery.SourceFileLoader('retention_cli', str(ROOT / 'roles/backup_restic/files/wp-backup'))
+        loader = importlib.machinery.SourceFileLoader('retention_cli', str(ROOT / 'server-tools/bin/wp-backup'))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {'wp_hosting':ops}):

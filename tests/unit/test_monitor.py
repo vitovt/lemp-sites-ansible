@@ -36,11 +36,11 @@ esac
             mock.chmod(0o755)
             script = base / 'monitor'
             policy_script = base / 'code_policy.py'
-            policy_script.write_text((ROOT / 'roles/site/files/code_policy.py').read_text())
-            script.write_text((ROOT / 'roles/wp_monitor/files/wp-monitor').read_text()
+            policy_script.write_text((ROOT / 'server-tools/lib/code_policy.py').read_text())
+            script.write_text((ROOT / 'server-tools/bin/wp-monitor').read_text()
                 .replace('SITES_ROOT=/srv/sites', f'SITES_ROOT={base}/sites')
                 .replace('. /etc/wp-monitor.conf', f'. {base}/config')
-                .replace('/usr/local/lib/wp-hosting/code_policy.py', str(policy_script)))
+                .replace('/usr/local/lib/wp-hosting/lib/code_policy.py', str(policy_script)))
             return subprocess.run(['bash', str(script), '--check', 'example.com'],
                 env={**os.environ, 'PATH': str(base / 'bin') + ':' + os.environ['PATH']}, text=True, capture_output=True)
 
@@ -64,7 +64,7 @@ esac
         self.assertEqual(self.run_monitor().returncode, 0)
 
     def test_telegram_chunks_multiline_and_unicode(self):
-        loader = importlib.machinery.SourceFileLoader('alerts', str(ROOT / 'roles/telegram_alert/files/tg-alert'))
+        loader = importlib.machinery.SourceFileLoader('alerts', str(ROOT / 'server-tools/bin/tg-alert'))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         alerts = importlib.util.module_from_spec(spec)
         loader.exec_module(alerts)

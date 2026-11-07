@@ -163,7 +163,7 @@ check_site() {  # $1 = site dir
     fi
 
     if has plugin_checksums; then
-        out=$(python3 /usr/local/lib/wp-hosting/code_policy.py check-plugins \
+        out=$(python3 /usr/local/lib/wp-hosting/lib/code_policy.py check-plugins \
             "$dir" "$SITE_USER" "$PHP_VERSION" "$WPCLI" 2>&1)
         case "$out" in
             PASS\ *) echo "PASS $SITE ${out#PASS }" ;;

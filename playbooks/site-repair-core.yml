@@ -18,7 +18,7 @@
     repair_d: "{{ repair_site | default('') }}"
     repair_go: "{{ (confirm | default('')) == repair_d }}"
     repair_root: "/srv/sites/{{ repair_d }}"
-    repair_monitor: "{{ wp_monitor_bin | default('/usr/local/sbin/wp-monitor') }}"
+    repair_monitor: "{{ '/usr/local/sbin/wp-monitor' }}"
   pre_tasks:
     - name: Check test isolation
       ansible.builtin.import_tasks: tasks/test-guard.yml

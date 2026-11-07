@@ -36,7 +36,7 @@ class PermissionTests(unittest.TestCase):
              patch.object(os, 'fstat', side_effect=fstat), \
              contextlib.redirect_stdout(io.StringIO()):
             try:
-                runpy.run_path(str(ROOT / 'roles/site/files/site-fix-perms'), run_name='__main__')
+                runpy.run_path(str(ROOT / 'server-tools/bin/site-fix-perms'), run_name='__main__')
             except SystemExit as exc:
                 return exc.code
 

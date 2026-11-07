@@ -89,6 +89,7 @@ contents, password option, and optional cleanup after export.
 - [Example inventory](Docs/EXAMPLES.md): all template fields and copy steps.
 - [Controller archive](Docs/ARCHIVE.md): encrypted transfer and recovery.
 - [Operations](Docs/OPERATIONS.md): site commands, backup, and restore.
+- [Server tools](Docs/SERVER_TOOLS.md): add and deliver server commands.
 - [Site code](Docs/SITE_CODE_POLICY.md): `jump-in`, local update holds, and checksum rules.
 - [PHP versions](Docs/PHP_VERSION_SWITCH_SPEC.md): branch changes and recovery.
 - [Security](Docs/SECURITY.md): access model and threat boundaries.

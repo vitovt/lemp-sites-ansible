@@ -55,7 +55,7 @@ if a.reset:
 # An allow-list excludes production inventory, local secrets, SSH keys, and .git.
 project = work / 'project'
 project.mkdir(exist_ok=True)
-for name in ['roles', 'playbooks', 'library', 'scripts', 'tests']:
+for name in ['roles', 'playbooks', 'library', 'scripts', 'tests', 'server-tools']:
     shutil.copytree(ROOT / name, project / name, dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
 if (ROOT / 'collections').is_dir():
     shutil.copytree(ROOT / 'collections', project / 'collections', dirs_exist_ok=True)
@@ -244,7 +244,7 @@ if a.phase == 'cutover':
 if a.phase in ['all', 'lifecycle']:
     archive = work / 'probes.tar'
     with tarfile.open(archive, 'w') as tar:
-        for name in ['roles', 'tests', 'library']:
+        for name in ['roles', 'tests', 'library', 'server-tools']:
             tar.add(project / name, arcname=name, filter=lambda item: None if '__pycache__' in item.name else item)
     remote('mkdir -p /tmp/wp-hosting-probes && tar -xf - -C /tmp/wp-hosting-probes', archive.read_bytes())
     remote(privileged('python3 /tmp/wp-hosting-probes/tests/integration/scenarios.py ' + token))

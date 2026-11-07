@@ -5,14 +5,6 @@
     state: present
     cache_valid_time: 3600
 
-- name: Install tg-alert
-  ansible.builtin.copy:
-    src: tg-alert
-    dest: "{{ telegram_alert_bin }}"
-    owner: root
-    group: root
-    mode: "0755"
-
 - name: Check for Telegram secrets on the control node
   ansible.builtin.stat:
     path: "{{ telegram_alert_env_src }}"

@@ -32,10 +32,6 @@
     state: present
   when: not site_apply_only | default(false) | bool
 
-- name: Operator shell and commands
-  ansible.builtin.import_tasks: operator-tools.yml
-  when: not site_apply_only | default(false) | bool
-
 - name: Configure sites
   ansible.builtin.include_tasks: one-site.yml
   loop: >-

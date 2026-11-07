@@ -12,7 +12,7 @@ python3 - <<'PY'
 from pathlib import Path
 import ast
 import subprocess
-for root in ['scripts', 'library', 'tests', 'roles']:
+for root in ['scripts', 'library', 'tests', 'roles', 'server-tools']:
     for path in Path(root).rglob('*'):
         if not path.is_file() or '__pycache__' in path.parts:
             continue

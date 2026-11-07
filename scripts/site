@@ -13,7 +13,7 @@ from ruamel.yaml import YAML as RoundTripYAML
 from ruamel.yaml.error import YAMLError as RoundTripError
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / 'roles/site/files'), str(ROOT / 'library')]
+sys.path[:0] = [str(ROOT / 'server-tools/lib'), str(ROOT / 'library')]
 from wp_hosting import DOMAIN, NAME, RESERVED
 
 

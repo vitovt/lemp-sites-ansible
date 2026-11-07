@@ -26,7 +26,7 @@ class ValkeyACLTests(unittest.TestCase):
         self.assertTrue(sync['no_log'])
 
     def test_stale_live_acl_is_loaded_even_when_file_is_unchanged(self):
-        path = ROOT / 'roles/valkey/files/valkey-acl-sync'
+        path = ROOT / 'server-tools/bin/valkey-acl-sync'
         loader = importlib.machinery.SourceFileLoader('valkey_acl_sync', str(path))
         module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
         loader.exec_module(module)

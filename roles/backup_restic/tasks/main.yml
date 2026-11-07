@@ -63,14 +63,6 @@
     RESTIC_REPOSITORY: "{{ backup_restic_repo }}"
     RESTIC_PASSWORD_FILE: "{{ backup_restic_conf_dir }}/password"
 
-- name: Install wp-backup
-  ansible.builtin.copy:
-    src: wp-backup
-    dest: "{{ backup_restic_bin }}"
-    owner: root
-    group: root
-    mode: "0755"
-
 - name: Install backup service and timer
   ansible.builtin.template:
     src: "{{ item }}.j2"

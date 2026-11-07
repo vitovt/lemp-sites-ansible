@@ -10,9 +10,9 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / 'roles/site/files/wp-site'
+SCRIPT = ROOT / 'server-tools/bin/wp-site'
 sys.path.insert(0, str(ROOT / 'library'))
-sys.path.insert(0, str(ROOT / 'roles/site/files'))
+sys.path.insert(0, str(ROOT / 'server-tools/lib'))
 loader = importlib.machinery.SourceFileLoader('wp_site_helper', str(SCRIPT))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 helper = importlib.util.module_from_spec(spec)
@@ -38,7 +38,7 @@ class HelperTests(unittest.TestCase):
                 helper.authorized(s, edit=True)
 
     def test_help_and_noninteractive_menu(self):
-        env = {**os.environ, 'PYTHONPATH': str(ROOT / 'library')}
+        env = {**os.environ, 'PYTHONPATH': str(ROOT / 'server-tools/lib')}
         result = subprocess.run([sys.executable, str(SCRIPT), '--help'], text=True, capture_output=True, env=env)
         self.assertEqual(result.returncode, 0)
         self.assertIn('jump-in example.com', result.stdout)

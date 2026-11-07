@@ -19,7 +19,7 @@ assert Path('/etc/wp-hosting-test-id').read_text().strip() == TOKEN
 assert sorted(p.parent.parent.name for p in Path('/srv/sites').glob('*/conf/site.env')) == ['test1.example', 'test2.example']
 assert not Path('/etc/tg-alert.env').exists()
 assert not Path('/etc/letsencrypt/cloudflare.ini').exists()
-sys.path.insert(0, '/usr/local/lib/wp-hosting')
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from wp_hosting import Database, load, site, wp
 
 A, B = site('test1.example'), site('test2.example')

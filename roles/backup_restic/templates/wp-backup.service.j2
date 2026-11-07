@@ -6,6 +6,6 @@ RequiresMountsFor={{ backup_restic_repo }}
 
 [Service]
 Type=oneshot
-ExecStart={{ backup_restic_bin }}
+ExecStart=/usr/local/sbin/wp-backup
 Nice=10
 IOSchedulingClass=idle

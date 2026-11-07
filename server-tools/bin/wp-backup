@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 
-sys.path.insert(0, '/usr/local/lib/wp-hosting')
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from wp_hosting import (Database, SITES, backup_site, clone, load, operation_lock, prefix,
     read_env, require_wordpress_tables, restore_database, remove_site, sha256_file, run, site)
 

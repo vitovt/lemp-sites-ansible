@@ -4,7 +4,7 @@ import argparse
 import os
 import subprocess
 import sys
-sys.path.insert(0, '/usr/local/lib/wp-hosting')
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from wp_hosting import run, site
 
 p = argparse.ArgumentParser(description=__doc__)

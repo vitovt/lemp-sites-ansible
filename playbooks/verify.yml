@@ -35,7 +35,7 @@
   tasks:
     - name: Run wp-monitor --check
       ansible.builtin.command:
-        argv: "{{ [wp_monitor_bin | default('/usr/local/sbin/wp-monitor'), '--check'] + ([verify_only] if verify_only else []) }}"
+        argv: "{{ ['/usr/local/sbin/wp-monitor', '--check'] + ([verify_only] if verify_only else []) }}"
       register: verify_monitor
       changed_when: false
       failed_when: verify_monitor.rc > 1

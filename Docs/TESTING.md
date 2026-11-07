@@ -99,3 +99,13 @@ repeated command must report `changed=0`.
 Repeat convergence must report `changed=0`, `unreachable=0`, and `failed=0`.
 No failed or skipped real-environment test is proof of a working feature.
 See Validation for the recorded run and remaining coverage.
+
+For shared server tool delivery, run this command against a disposable VM:
+
+```sh
+python3 tests/run-tools-integration.py \
+  --inventory inventories/my-test-server/settings.yml --limit my-test-server
+```
+
+The test uses an isolated remote `/tmp` prefix. See
+[server tool delivery](SERVER_TOOLS.md) for the tested sequence and file layout.

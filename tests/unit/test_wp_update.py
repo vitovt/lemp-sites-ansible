@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[2] / 'roles/maintenance/files/wp-update'
+SCRIPT = Path(__file__).resolve().parents[2] / 'server-tools/bin/wp-update'
 loader = importlib.machinery.SourceFileLoader('wp_update', str(SCRIPT))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 module = importlib.util.module_from_spec(spec)

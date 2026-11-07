@@ -9,7 +9,7 @@ import pwd
 import subprocess
 import sys
 
-sys.path.insert(0, '/usr/local/lib/wp-hosting')
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from code_policy import SLUG, allowed_mismatch, check_plugins, load, plugin_file, plugin_file_absent, safe_path, save
 from wp_hosting import site
 
@@ -106,7 +106,7 @@ def enter(s):
     if root.is_symlink() or not root.is_dir():
         raise ValueError('Site document root is missing or a symlink')
     # The account remains nologin for SSH. A root-initiated shell uses Bash directly.
-    rc = '/usr/local/lib/wp-hosting/site-shell.bashrc'
+    rc = '/usr/local/lib/wp-hosting/lib/site-shell.bashrc'
     env = ['env', '-i', 'HOME=' + str(s['base'] / 'owner-tmp'),
            'USER=' + s['SITE_USER'], 'LOGNAME=' + s['SITE_USER'],
            'SITE_DOMAIN=' + s['domain'], 'SITE_USER=' + s['SITE_USER'],

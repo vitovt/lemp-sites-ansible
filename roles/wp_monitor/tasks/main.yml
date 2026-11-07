@@ -24,14 +24,6 @@
     group: root
     mode: "0644"
 
-- name: Install wp-monitor
-  ansible.builtin.copy:
-    src: wp-monitor
-    dest: "{{ wp_monitor_bin }}"
-    owner: root
-    group: root
-    mode: "0755"
-
 - name: Install wp-monitor service and timer
   ansible.builtin.template:
     src: "{{ item }}.j2"

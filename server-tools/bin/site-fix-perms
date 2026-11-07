@@ -5,7 +5,7 @@ import os
 import pwd
 import stat
 import sys
-sys.path.insert(0, '/usr/local/lib/wp-hosting')
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
 from wp_hosting import site
 
 p = argparse.ArgumentParser(description=__doc__)

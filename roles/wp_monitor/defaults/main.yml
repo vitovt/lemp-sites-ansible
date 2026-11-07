@@ -24,7 +24,6 @@
 #                     type created in 24 h; 0 = off for the site
 wp_monitor_on_calendar: "*-*-* 04:30:00"
 wp_monitor_state_dir: /var/lib/wp-monitor
-wp_monitor_bin: /usr/local/sbin/wp-monitor
 wp_monitor_wpcli: /usr/local/bin/wp
 wp_monitor_checks:
   - host_services

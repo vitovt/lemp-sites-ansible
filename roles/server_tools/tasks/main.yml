@@ -1,0 +1,90 @@
+---
+- name: Create the managed tool directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ server_tools_root }}"
+    - "{{ server_tools_root }}/bin"
+    - "{{ server_tools_root }}/lib"
+    - "{{ server_tools_command_dir }}"
+
+- name: Discover server commands on the controller
+  ansible.builtin.set_fact:
+    server_tools_commands: "{{ lookup('ansible.builtin.fileglob', server_tools_source ~ '/bin/*', wantlist=True) | map('basename') | sort }}"
+
+- name: Check command destinations
+  ansible.builtin.stat:
+    path: "{{ server_tools_command_dir }}/{{ item }}"
+    follow: false
+  loop: "{{ server_tools_commands }}"
+  register: server_tools_destinations
+
+- name: Refuse to overwrite unrelated commands
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (item.stat.exists or item.stat.islnk | default(false))
+        or (item.stat.islnk | default(false)
+            and item.stat.lnk_source == server_tools_root ~ '/bin/' ~ item.item)
+    fail_msg: "Command destination is already used: {{ server_tools_command_dir }}/{{ item.item }}"
+    quiet: true
+  loop: "{{ server_tools_destinations.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Discover source files and directories
+  ansible.builtin.find:
+    paths:
+      - "{{ server_tools_source }}/bin"
+      - "{{ server_tools_source }}/lib"
+    recurse: true
+    hidden: true
+    file_type: any
+    excludes: [__pycache__, "*.pyc", "*.pyo"]
+  delegate_to: localhost
+  become: false
+  register: server_tools_source_entries
+
+- name: Select source entries without Python caches
+  ansible.builtin.set_fact:
+    server_tools_entries: "{{ server_tools_source_entries.files | rejectattr('path', 'search', '/__pycache__/') | list }}"
+
+- name: Reject source symlinks
+  ansible.builtin.assert:
+    that: server_tools_entries | selectattr('islnk') | list | length == 0
+    fail_msg: "Use regular files in server-tools."
+
+- name: Create tool subdirectories
+  ansible.builtin.file:
+    path: "{{ server_tools_root }}/{{ item.path | relpath(server_tools_source) }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ server_tools_entries | selectattr('isdir') | sort(attribute='path') }}"
+  loop_control:
+    label: "{{ item.path | relpath(server_tools_source) }}"
+
+- name: Copy server files without deleting old files
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "{{ server_tools_root }}/{{ item.path | relpath(server_tools_source) }}"
+    owner: root
+    group: root
+    mode: "{{ '0755' if (item.path | relpath(server_tools_source)).startswith('bin/') else '0644' }}"
+  loop: "{{ server_tools_entries | selectattr('isreg') }}"
+  loop_control:
+    label: "{{ item.path | relpath(server_tools_source) }}"
+
+- name: Expose server commands
+  ansible.builtin.file:
+    src: "{{ server_tools_root }}/bin/{{ item }}"
+    dest: "{{ server_tools_command_dir }}/{{ item }}"
+    state: link
+    owner: root
+    group: root
+  loop: "{{ server_tools_commands }}"

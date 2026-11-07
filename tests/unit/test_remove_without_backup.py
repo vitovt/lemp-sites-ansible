@@ -9,13 +9,13 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'library'))
-spec = importlib.util.spec_from_file_location('operations', ROOT / 'roles/site/files/wp_hosting.py')
+spec = importlib.util.spec_from_file_location('operations', ROOT / 'server-tools/lib/wp_hosting.py')
 operations = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(operations)
 
 
 def backup_cli():
-    loader = importlib.machinery.SourceFileLoader('remove_cli', str(ROOT / 'roles/backup_restic/files/wp-backup'))
+    loader = importlib.machinery.SourceFileLoader('remove_cli', str(ROOT / 'server-tools/bin/wp-backup'))
     module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
     with patch.dict(sys.modules, {'wp_hosting': operations}):
         loader.exec_module(module)

@@ -323,3 +323,25 @@ Thus, the full server playbook and `site-apply` were not exercised for this
 change. Backup, restore, and clone of a policy file were checked in code and
 documentation only, not by a live lifecycle run. Server 125 was not accessed
 or changed.
+
+## Shared server tool delivery on 2026-11-07
+
+`tests/check.sh` passed 120 unit tests, all playbook syntax checks, and Python
+and shell syntax checks including `server-tools/`. Offline Ansible lint passed
+its production profile with zero findings.
+
+The dedicated delivery test ran on VM 241 in an isolated
+`/tmp/wp-tool-delivery-*` prefix. It copied no site data or production secrets.
+It delivered a new command without an Ansible change, executed it through its
+link, updated its content, and retained the file and link after its source was
+removed. Both repeat runs reported `changed=0`. Root ownership, library mode
+`0644`, nested directory delivery, and Python cache exclusion passed.
+
+A final check-mode run of the role reported `changed=0`, `failed=0`. A delivered
+`wp-site --help` loaded the delivered library through the isolated prefix. The
+controller's linked `hosting_config` module also packaged and executed through
+Ansible on the VM and locally.
+
+This test did not reinstall the complete hosting stack or run backup, restore,
+clone, public certificates, or systemd timers from the new layout. The installed
+tools and sites on VM 241 were not replaced. Server 125 was not accessed.

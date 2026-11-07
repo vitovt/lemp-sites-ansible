@@ -1,12 +1,4 @@
 ---
-- name: Install the update runner
-  ansible.builtin.copy:
-    src: wp-update
-    dest: /usr/local/sbin/wp-update
-    owner: root
-    group: root
-    mode: "0755"
-
 - name: Install the update service and timer
   ansible.builtin.copy:
     dest: "/etc/systemd/system/{{ item.name }}"
