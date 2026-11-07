@@ -19,6 +19,8 @@ from wp_hosting import (Database, SITES, backup_site, clone, load, operation_loc
     read_env, require_wordpress_tables, restore_database, remove_site, sha256_file, run, site)
 
 
+BACKUP_MARKERS = Path('/var/lib/wp-hosting/backups')
+
 def snapshot_for(domain, env):
     snapshots = json.loads(run(['restic', 'snapshots', '--json', '--tag', 'complete'], env=env).stdout)
     candidates = [s for s in snapshots if any(p in (str(SITES), str(SITES / domain)) for p in s['paths'])]
@@ -77,17 +79,32 @@ def backup(sites, env, db, full=False):
         run(['restic', 'forget', '--quiet', '--prune', '--tag', 'complete', '--keep-daily', env['KEEP_DAILY'],
              '--keep-weekly', env['KEEP_WEEKLY'], '--keep-monthly', env['KEEP_MONTHLY']], env=env, timeout=7200)
         prune_recovery(sites, int(env.get('RECOVERY_KEEP_DAYS', '14')))
+    # Adding tags rewrites snapshot metadata and changes its content-addressed ID.
+    # Resolve by this run's unique tag after all required steps have succeeded.
+    completed = json.loads(run(['restic', 'snapshots', '--json', '--tag', tag], env=env).stdout)
+    if len(completed) != 1 or 'complete' not in completed[0].get('tags', []):
+        raise RuntimeError('Cannot identify the completed snapshot; no success marker was written')
+    snapshot_id = completed[0]['id']
     # This root-owned marker is written only after required backup steps pass.
     from datetime import datetime
     now = datetime.now().astimezone()
-    marker_dir = Path('/var/lib/wp-hosting/backups')
+    marker_dir = BACKUP_MARKERS
     marker_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     marker_dir.chmod(0o700)
     marker = marker_dir / (now.strftime('%Y%m%d-%H%M%S-') + snapshot_id + '.json')
-    marker.write_text(json.dumps({'snapshot': snapshot_id, 'sites': [s['domain'] for s in sites],
-                                  'date': now.date().isoformat(), 'time': now.isoformat()}))
-    marker.chmod(0o600)
-    print('PASS backup complete')
+    descriptor, temporary = tempfile.mkstemp(prefix='.backup-', dir=marker_dir)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, 'w') as stream:
+            json.dump({'snapshot': snapshot_id, 'run_tag': tag, 'sites': [s['domain'] for s in sites],
+                       'date': now.date().isoformat(), 'time': now.isoformat()}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, marker)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    print('PASS backup complete snapshot=' + snapshot_id)
+
 
 
 def restore_files(s, env, snapshot=None, destination=None):

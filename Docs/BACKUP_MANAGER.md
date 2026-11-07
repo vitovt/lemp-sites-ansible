@@ -231,3 +231,14 @@ A lost process is shown as interrupted. No automatic cleanup occurs at TUI exit.
 Command previews use quoted arguments and credential-file references. They do not enter shell history.
 A future preview with an inline password must request a separate disclosure approval.
 `--show-secrets` approves disclosure only for that invocation; `--yes` does not.
+
+## Completed snapshot IDs
+
+Restic changes a snapshot ID when tags change. The backup command records the
+final ID after all required steps succeed. New completion records also contain
+the unique run tag.
+
+The updater accepts old completion records through restic's `original` ID.
+It requires one matching complete snapshot and the selected site's SQL dump
+and manifest. It does not change old records or accept an unrelated backup.
+No new backup is required only to correct an old recorded ID.

@@ -29,6 +29,7 @@ The default backup check requires a completed backup of this site from today.
 --policy minor stays within each component's major version; latest permits it.
 Automatic runs use minor policy, clean Git, and the backup check.
 """
+BACKUP_MARKERS = Path('/var/lib/wp-hosting/backups')
 SLUG = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
 
 
@@ -71,7 +72,7 @@ def policy(domain):
 
 
 def backup_today(s):
-    directory = Path('/var/lib/wp-hosting/backups')
+    directory = BACKUP_MARKERS
     today = datetime.now().astimezone().date().isoformat()
     for path in sorted(directory.glob('*.json'), reverse=True) if directory.exists() else []:
         if path.is_symlink() or path.stat().st_uid != 0 or path.stat().st_mode & 0o022:
@@ -80,16 +81,36 @@ def backup_today(s):
             item = json.loads(path.read_text())
         except (OSError, ValueError):
             continue
+        if not isinstance(item, dict) or not isinstance(item.get('sites'), list) or not isinstance(item.get('time'), str):
+            continue
         if item.get('date') == today and s['domain'] in item.get('sites', []):
             sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
             from wp_hosting import read_env
             env = {**os.environ, **read_env('/etc/restic/env')}
-            snapshot = item['snapshot']
+            snapshot = item.get('snapshot')
+            if not isinstance(snapshot, str) or not re.fullmatch(r'[0-9a-f]{64}', snapshot):
+                continue
             result = command(['restic', 'snapshots', '--json', snapshot], env=env, check=False)
             if result.returncode:
                 continue
             found = json.loads(result.stdout or '[]')
-            if len(found) != 1 or found[0].get('id') != snapshot or 'complete' not in found[0].get('tags', []):
+            if found and (len(found) != 1 or found[0].get('id') != snapshot):
+                continue
+            if not found:
+                # Old writers saved the pre-tag ID. Restic preserves that ID in
+                # original. New markers also carry the unique run tag for retags.
+                catalog = command(['restic', 'snapshots', '--json'], env=env, check=False)
+                if catalog.returncode:
+                    continue
+                run_tag = item.get('run_tag')
+                valid_tag = isinstance(run_tag, str) and re.fullmatch(r'run-[0-9]+', run_tag)
+                found = [entry for entry in json.loads(catalog.stdout or '[]')
+                         if entry.get('original') == snapshot or
+                         (valid_tag and run_tag in entry.get('tags', []))]
+            if len(found) != 1 or 'complete' not in found[0].get('tags', []):
+                continue
+            snapshot = found[0].get('id')
+            if not isinstance(snapshot, str) or not re.fullmatch(r'[0-9a-f]{64}', snapshot):
                 continue
             listing = command(['restic', 'ls', '--json', snapshot], env=env, check=False)
             if listing.returncode:

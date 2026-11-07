@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run only inside the disposable, network-disabled backup-manager test container."""
 import contextlib
+import importlib.machinery
+import importlib.util
 import gzip
 import io
 import json
@@ -164,6 +166,32 @@ class RealBackupTests(unittest.TestCase):
             for scope in (['--site', 'current.example'], ['--all']):
                 out = self.invoke('create', *scope)
                 self.assertIn('Complete snapshot ID:', out)
+                loader = importlib.machinery.SourceFileLoader('installed_updater', '/usr/local/sbin/wp-update')
+                spec = importlib.util.spec_from_loader(loader.name, loader)
+                updater = importlib.util.module_from_spec(spec)
+                loader.exec_module(updater)
+                marker = max(Path('/var/lib/wp-hosting/backups').glob('*.json'), key=lambda p: p.stat().st_mtime_ns)
+                record = json.loads(marker.read_text())
+                snapshot = next(s for s in self.repository.snapshots() if s['id'] == record['snapshot'])
+                self.assertIn('complete', snapshot['tags'])
+                self.assertIn(record['run_tag'], snapshot['tags'])
+                site = {'base': base, 'domain': 'current.example'}
+                self.assertEqual(updater.backup_today(site)[0], snapshot['id'])
+                # Reproduce old markers from the ID before the complete tag.
+                saved = marker.read_bytes()
+                legacy = {**record, 'snapshot': snapshot['original']}
+                legacy.pop('run_tag')
+                marker.write_text(json.dumps(legacy))
+                legacy_bytes = marker.read_bytes()
+                self.assertEqual(updater.backup_today(site)[0], snapshot['id'])
+                self.assertEqual(marker.read_bytes(), legacy_bytes)
+                marker.write_bytes(saved)
+                # A later tag change must not invalidate the stable run identity.
+                command(['restic', 'tag', '--add', 'reviewed', snapshot['id']], env=self.env)
+                resolved = updater.backup_today(site)[0]
+                self.assertNotEqual(resolved, snapshot['id'])
+                self.assertIn('complete', next(s for s in self.repository.snapshots() if s['id'] == resolved)['tags'])
+
         finally:
             process.terminate()
             process.wait(timeout=30)
