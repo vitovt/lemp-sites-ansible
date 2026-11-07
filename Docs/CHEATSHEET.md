@@ -1,5 +1,13 @@
 # Operations cheat sheet
 
+## Backup manager (server, root)
+
+- [ ] Run `wp-backup-manager` to select a task and inspect its command.
+- [ ] Run `wp-backup-manager workspaces --mode run` to review temporary data.
+- [ ] Use recovery to extract only. Review and apply live changes separately.
+
+See [Backup manager](BACKUP_MANAGER.md) for CLI examples, exports, verification, and cleanup.
+
 Use these commands from the repository root. Replace `my-server`, domains,
 addresses, and users with your values. Run controller commands as your normal
 user. Run `wp-backup` and `wp-monitor` on the managed server as root.

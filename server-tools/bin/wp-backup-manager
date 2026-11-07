@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Manage backup snapshots and private recovery workspaces as root."""
+import sys
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
+from backup_manager import entrypoint
+
+if __name__ == '__main__':
+    sys.exit(entrypoint())

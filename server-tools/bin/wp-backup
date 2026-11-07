@@ -45,6 +45,7 @@ def prune_recovery(sites, days=14):
 
 def backup(sites, env, db, full=False):
     for s in sites:
+        print('Prepare SQL dump and manifests: ' + s['domain'], flush=True)
         backup_site(s, db)
     paths = shlex.split(env['BACKUP_PATHS']) if full else [str(sites[0]['base'])]
     if not paths or any(not Path(p).exists() for p in paths):
@@ -55,6 +56,7 @@ def backup(sites, env, db, full=False):
         args += ['--tag', 'site:' + sites[0]['domain']]
     for exclude in shlex.split(env['BACKUP_EXCLUDES']):
         args += ['--exclude', exclude]
+    print('Create restic snapshot', flush=True)
     result = run(args + paths, env=env, check=False, timeout=7200)
     if result.returncode:
         # A partial snapshot never receives the complete tag. Keep good retention points.
@@ -65,8 +67,10 @@ def backup(sites, env, db, full=False):
     snapshot_id = snapshots[0]['id']
     if full:
         if env.get('RESTIC_COPY_REPOSITORY'):
+            print('Copy snapshots to the configured destination', flush=True)
             run(['restic', '--repo', env['RESTIC_COPY_REPOSITORY'], '--password-file', env['RESTIC_COPY_PASSWORD_FILE'],
                  'copy', '--from-repo', env['RESTIC_REPOSITORY'], '--from-password-file', env['RESTIC_PASSWORD_FILE']], env=env, timeout=7200)
+        print('Check restic repository', flush=True)
         run(['restic', 'check', '--quiet'], env=env, timeout=7200)
     run(['restic', 'tag', '--add', 'complete', snapshot_id], env=env)
     if full:
