@@ -12,16 +12,24 @@ wp-backup-manager --help
 
 - [ ] Check the storage table at startup.
 - [ ] Select a task. Supply the missing values.
-- [ ] Select **Run**, **Show command**, or **Show and run**.
+- [ ] Use **13. Show commands [disabled]** to turn command previews on. Select it again to turn them off.
 - [ ] Check the result and the task ID.
 - [ ] Check the storage table before exit. Exit does not delete data.
+- [ ] Use **0. Exit** to close the menu.
 
 Type `cancel` or press Ctrl-C to cancel. Ctrl-C in an operation returns exit code 3.
 An interrupted operation can leave a failed or interrupted workspace. Inspect it before cleanup.
 
 ## Use complete commands
 
-`--mode run` executes directly. The initial display preference is `show-run`.
+`--mode run` executes directly. Command display is off by default.
+Start the menu with `wp-backup-manager --show-commands` to enable previews.
+Menu item 13 toggles display for the current session. There is no display prompt
+before each action. Each completed action is followed by a separator.
+Comments are blue and commands are cyan on a color terminal. `NO_COLOR`,
+`TERM=dumb`, and redirected output disable color.
+The menu starts with display off unless a CLI mode is supplied. Saved CLI
+preferences do not change the initial menu state.
 Read-only actions can display and run without confirmation. Write actions need confirmation.
 Use `--yes` for an approved non-interactive operation. It never approves password disclosure.
 Use `--mode show` to print a plan without changing backup or recovery data.

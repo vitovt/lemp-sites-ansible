@@ -596,6 +596,11 @@ def retention(env):
     print('Destination repositories have their own retention. Copy does not apply source retention there.')
 
 
+def display_line(text, *, comment=False):
+    color = sys.stdout.isatty() and os.environ.get('TERM', '') != 'dumb' and 'NO_COLOR' not in os.environ
+    print(('\033[34m' if comment else '\033[36m') + text + '\033[0m' if color else text)
+
+
 def preview(commands, notes=(), *, show_secrets=False):
     # Passwords are never included by generated commands. Credential files remain references.
     # This general guard also protects future commands which supply a password argument.
@@ -610,9 +615,9 @@ def preview(commands, notes=(), *, show_secrets=False):
         if secret_indexes and not disclose:
             for i in secret_indexes:
                 command[i] = command[i].split('=', 1)[0] + '=<MASKED>' if '=' in command[i] else '<MASKED>'
-        print(shlex.join(command))
+        display_line(shlex.join(command))
     for note in notes:
-        print('# ' + note)
+        display_line('# ' + note, comment=True)
 
 
 def parser():
@@ -635,7 +640,9 @@ Recovery extracts data only. Live imports and activation are manual.''')
     p.add_argument('--snapshot', action='append', help='Snapshot ID; repeat for copy or deletion')
     p.add_argument('--scope', choices=SCOPES)
     p.add_argument('--path', help='Literal path relative to the site root, e.g. htdocs/robots.txt')
-    p.add_argument('--mode', choices=('run', 'show', 'show-run'), help='Use saved preference if omitted')
+    p.add_argument('--mode', choices=('run', 'show', 'show-run'), help='Command display: run (default), show only, or show then run')
+    p.add_argument('--show-commands', dest='mode', action='store_const', const='show-run',
+                   help='Show commands before execution; in the menu, keep display on until toggled')
     p.add_argument('--default-mode', choices=('run', 'show', 'show-run'), help='New default for the preferences action')
     p.add_argument('--yes', action='store_true', help='Approve operation; does not approve secret disclosure')
     p.add_argument('--show-secrets', action='store_true', help='Approve password display for this command only')
@@ -968,9 +975,9 @@ def dispatch(args, env):
         # Prefix restic previews with actual source configuration; execution never uses a shell.
         commands = [[*c[:1], '--repo', env['RESTIC_REPOSITORY'], '--password-file', env['RESTIC_PASSWORD_FILE'], *c[1:]]
                     if c and c[0] == 'restic' and '--repo' not in c else c for c in commands]
-        print('# Equivalent manager command (includes validation and locking):')
+        display_line('# Equivalent manager command (includes validation and locking):', comment=True)
         preview([manager_command(args, snap, snaps, chosen)], show_secrets=args.show_secrets)
-        print('# Internal steps; do not run these separately:')
+        display_line('# Internal steps; do not run these separately:', comment=True)
         preview(commands, notes, show_secrets=args.show_secrets)
         if mode == 'show':
             return
@@ -1081,7 +1088,7 @@ def preference():
         if value not in ('run', 'show', 'show-run'):
             raise ValueError('Invalid command display preference')
         return value
-    return 'show-run'
+    return 'run'
 
 
 def tui(args, env):
@@ -1091,14 +1098,21 @@ def tui(args, env):
     labels = ['List backups', 'Create a backup', 'Extract data', 'Create a portable copy',
               'Copy snapshots to another repository', 'Verify a backup', 'Browse contents',
               'Compare with current site', 'Backup system status', 'Retention and snapshot deletion',
-              'Recovery and transfer instructions', 'List and clean temporary files', 'Command display preferences', 'Exit']
+              'Recovery and transfer instructions', 'List and clean temporary files']
+    mode = args.mode or 'run'
     try:
         while True:
             for i, label in enumerate(labels, 1):
                 print(f'{i:2}. {label}')
-            selection = ask('Task', [str(i) for i in range(1, 15)])
-            if selection == '14':
+            print('13. Show commands [' + ('enabled' if mode != 'run' else 'disabled') + ']')
+            print(' 0. Exit')
+            selection = ask('Task', [str(i) for i in range(1, 14)] + ['0'])
+            if selection == '0':
                 return
+            if selection == '13':
+                mode = 'show-run' if mode == 'run' else 'run'
+                print('\n' + '=' * 60 + '\n\n', end='')
+                continue
             selected = parser().parse_args([])
             selected.config = args.config
             selected.action = ACTIONS[int(selection) - 1]
@@ -1117,13 +1131,15 @@ def tui(args, env):
                     selected.full = option == 'list-full'
                     if option == 'cleanup':
                         selected.action = 'cleanup'
-                selected.mode = ask('Command display', ['run', 'show', 'show-run'], preference())
+                selected.mode = mode
                 dispatch(selected, env)
             except Cancelled:
                 print('Cancelled.')
             except (ValueError, RuntimeError, OSError) as exc:
                 print('FAIL:', safe_text(exc), file=sys.stderr)
                 hint('wp-backup-manager', str(exc))
+            finally:
+                print('\n' + '=' * 60 + '\n\n', end='')
     finally:
         print('RECOVERY AND EXPORT STORAGE AT EXIT')
         tasks.show()

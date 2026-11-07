@@ -171,11 +171,50 @@ class ManagerTests(unittest.TestCase):
 
     def test_tui_prints_startup_and_exit_tables(self):
         args = bm.parser().parse_args([])
-        with patch.object(bm, 'ask', return_value='14'), contextlib.redirect_stdout(io.StringIO()) as out:
+        with patch.object(bm, 'ask', return_value='0'), contextlib.redirect_stdout(io.StringIO()) as out:
             bm.tui(args, self.env)
         self.assertIn('AT STARTUP', out.getvalue())
         self.assertIn('AT EXIT', out.getvalue())
         self.assertEqual(out.getvalue().count('Total allocated bytes:'), 2)
+
+    def test_tui_toggle_is_session_local_and_never_prompts_for_display(self):
+        args = bm.parser().parse_args([])
+        with patch.object(bm, 'ask', side_effect=['1', '13', '1', '13', '1', '0']) as ask, \
+             patch.object(bm, 'dispatch') as dispatch, \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            bm.tui(args, self.env)
+        self.assertEqual([call.args[0].mode for call in dispatch.call_args_list], ['run', 'show-run', 'run'])
+        self.assertTrue(all(call.args[0] == 'Task' for call in ask.call_args_list))
+        text = output.getvalue()
+        self.assertIn('13. Show commands [disabled]', text)
+        self.assertIn('13. Show commands [enabled]', text)
+        self.assertIn(' 0. Exit', text)
+        self.assertNotIn('14. Exit', text)
+        self.assertIn('=' * 60 + '\n\n 1.', text)
+        self.assertFalse(bm.PREFERENCES.exists())
+
+    def test_tui_cli_display_option_can_be_toggled_off(self):
+        args = bm.parser().parse_args(['--show-commands'])
+        with patch.object(bm, 'ask', side_effect=['1', '13', '1', '0']), \
+             patch.object(bm, 'dispatch') as dispatch, contextlib.redirect_stdout(io.StringIO()):
+            bm.tui(args, self.env)
+        self.assertEqual([call.args[0].mode for call in dispatch.call_args_list], ['show-run', 'run'])
+
+    def test_default_mode_is_run(self):
+        self.assertEqual(bm.preference(), 'run')
+
+    def test_preview_colors_are_optional_and_distinct(self):
+        with patch.object(sys.stdout, 'isatty', return_value=True), \
+             patch.dict(os.environ, {'TERM': 'xterm'}, clear=True), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            # redirect_stdout changes the stream; patch that stream's terminal capability.
+            with patch.object(output, 'isatty', return_value=True):
+                bm.preview([['restic', 'snapshots']], ['Read only'])
+        self.assertIn('\033[36mrestic snapshots\033[0m', output.getvalue())
+        self.assertIn('\033[34m# Read only\033[0m', output.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            bm.preview([['restic', 'snapshots']], ['Read only'])
+        self.assertNotIn('\033[', output.getvalue())
 
     def test_preview_does_not_create_workspaces_or_run_restore(self):
         args = bm.parser().parse_args(['extract', '--site', 'deleted.example', '--snapshot', 'aaaa',

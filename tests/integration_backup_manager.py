@@ -214,7 +214,7 @@ class RealBackupTests(unittest.TestCase):
         master, slave = pty.openpty()
         proc = subprocess.Popen(['/usr/local/sbin/wp-backup-manager'], stdin=slave, stdout=slave, stderr=slave)
         os.close(slave)
-        os.write(master, b'14\n')
+        os.write(master, b'0\n')
         output = b''
         deadline = time.time() + 15
         try:

@@ -485,3 +485,29 @@ tools and sites on VM 241 were not replaced. Server 125 was not accessed.
   quoted site values, hints in private logs, invalid CLI help, and plan errors.
 - This change adds print-only advice. No server was accessed. Live updates,
   Telegram delivery, and execution of the suggested recovery commands were not tested.
+
+## Manual command hints and backup menu (2026-11-07)
+
+### Passed
+
+- `tests/check.sh`: 211 unit tests, playbook syntax checks, Python parsing,
+  and shell syntax checks.
+- `tests/run-backup-manager-integration.sh`: 9 tests passed with real restic
+  and container-local MariaDB. The installed TUI exited through option 0.
+- `tests/run-site-shell-integration.sh`: 11 tests passed. Site-owner identity,
+  policy permissions, terminal behavior, and repeat delivery remained valid.
+- Both integration containers had no runtime network or host mounts. They used
+  generated fixtures. Repeat installation reported `changed=0`.
+- Unit regressions cover command-specific hints, preserved child/usage exit
+  codes, cancellation, clean stdout, and omission of subprocess argv/output.
+- Menu regressions cover default display off, CLI enablement, toggling both
+  ways, no per-action display question, separators, exit 0, and distinct preview
+  colors. Redirected output has no ANSI escapes.
+
+### Not tested
+
+- Servers 125 and 241 were not accessed or changed.
+- Live WordPress updates, real Telegram delivery, remote repositories, and
+  execution of the suggested manual repairs were not tested.
+- Native PHP/WP-CLI error text comes from the child tool. Wrapper hints add
+  general checks; they do not diagnose every third-party plugin failure.
