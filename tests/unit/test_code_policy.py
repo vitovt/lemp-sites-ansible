@@ -83,6 +83,13 @@ class CodePolicyTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 policy.plugin_file(base, 'plug', 'storage/secret.php')
 
+    def test_deleted_file_can_have_an_absent_subdirectory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / 'htdocs/wp-content/plugins/plug').mkdir(parents=True)
+            self.assertTrue(policy.plugin_file_absent(base, 'plug', 'removed/old.php'))
+            self.assertFalse(policy.plugin_file_absent(base, 'missing-plugin', 'old.php'))
+
     def test_checker_accepts_only_reviewed_rows_and_reports_unavailable_plugins(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

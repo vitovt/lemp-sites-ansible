@@ -143,9 +143,12 @@ def plugin_file_absent(base, slug, relative):
     parts = ['htdocs', 'wp-content', 'plugins', slug, *relative.split('/')]
     descriptor = os.open(base, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        for part in parts[:-1]:
-            next_descriptor = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                                      dir_fd=descriptor)
+        for index, part in enumerate(parts[:-1]):
+            try:
+                next_descriptor = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                          dir_fd=descriptor)
+            except FileNotFoundError:
+                return index >= 4  # Only a subdirectory below the plugin may be absent.
             os.close(descriptor)
             descriptor = next_descriptor
         try:
