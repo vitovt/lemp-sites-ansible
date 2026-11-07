@@ -71,7 +71,10 @@ def verify_manifest(root, *, files=True, database=True, scratch=False, db=None):
             with db.scratch() as (name, password):
                 load(path, name, name, password)
                 tables = db.tables(name)
-                if tables != manifest.get('tables'):
+                expected = manifest.get('tables')
+                if not isinstance(expected, list) or not all(isinstance(name, str) for name in expected):
+                    raise ValueError('Invalid manifest table list')
+                if sorted(tables) != sorted(expected):
                     raise ValueError('Scratch database table list differs')
                 if manifest.get('installed'):
                     require_wordpress_tables(tables, manifest['prefix'])

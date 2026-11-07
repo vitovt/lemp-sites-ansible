@@ -1,5 +1,6 @@
 """Regression tests for shared extraction verification."""
 import gzip
+import contextlib
 import json
 from pathlib import Path
 import sys
@@ -65,6 +66,17 @@ class ManifestTests(unittest.TestCase):
         self.save()
         with self.assertRaises(ValueError):
             recovery.verify_manifest(self.root)
+
+    def test_scratch_table_names_do_not_depend_on_database_collation(self):
+        from unittest.mock import Mock
+        self.manifest['tables'] = ['wp_term_relationships', 'wp_termmeta']
+        self.save()
+        db = Mock()
+        db.scratch.return_value = contextlib.nullcontext(('scratch', 'fixture'))
+        db.tables.return_value = list(reversed(self.manifest['tables']))
+        with patch.object(recovery, 'load'):
+            result = recovery.verify_manifest(self.root, scratch=True, db=db)
+        self.assertIn('PASS scratch import and manifest table list', result)
 
 
 if __name__ == '__main__':
