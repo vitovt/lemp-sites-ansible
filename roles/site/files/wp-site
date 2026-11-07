@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""Work with one managed WordPress site and its local code policy."""
+import argparse
+import copy
+import json
+import os
+from pathlib import Path
+import pwd
+import subprocess
+import sys
+
+sys.path.insert(0, '/usr/local/lib/wp-hosting')
+from code_policy import SLUG, allowed_mismatch, check_plugins, load, plugin_file, plugin_file_absent, safe_path, save
+from wp_hosting import site
+
+SHORT = '''Usage: wp-site [enter|git|check|policy] [SITE] ...
+Run wp-site --help for examples. Run wp-site with no arguments for a menu.'''
+HELP = '''Work with one site. Run as root, or use the policy command in jump-in.
+
+Examples:
+  jump-in example.com
+  wp-site git example.com status --short
+  wp-site check example.com plugins example-plugin
+  wp-site policy example.com
+  wp-site policy hold example.com example-plugin --reason "Local patch"
+  wp-site policy unhold example.com example-plugin
+  wp-site policy checksums example.com example-plugin --mode git
+  wp-site policy allow-file example.com example-plugin storage/index.php --yes
+  wp-site policy remove-file example.com example-plugin storage/index.php
+
+A full allow-file command requires --yes after review. Omit fields to select
+them interactively. Site policy is local and is never written by Ansible.'''
+
+
+def ask(label, choices=None):
+    if not sys.stdin.isatty():
+        raise ValueError('Missing ' + label + '; an interactive terminal is required')
+    if choices:
+        for index, choice in enumerate(choices, 1):
+            print(f'  {index}. {choice}')
+        raw = input(label + ' (number): ').strip()
+        if not raw.isdigit() or not 1 <= int(raw) <= len(choices):
+            raise ValueError('Invalid selection')
+        return choices[int(raw) - 1]
+    value = input(label + ': ').strip()
+    if not value:
+        raise ValueError(label + ' is required')
+    return value
+
+
+def choose_site(value):
+    if value:
+        return value
+    caller = os.environ.get('SUDO_USER')
+    site_caller = caller and pwd.getpwnam(caller).pw_dir.startswith('/srv/sites/')
+    roots = sorted(p.name for p in Path('/srv/sites').iterdir()
+                   if (p / 'conf/site.env').is_file() and
+                   (not site_caller or site(p.name)['SITE_USER'] == caller))
+    return ask('Site', roots)
+
+
+def authorized(s, *, edit=False):
+    if os.geteuid() != 0:
+        raise PermissionError('Run as root; use the policy helper inside jump-in')
+    caller = os.environ.get('SUDO_USER')
+    if caller and caller != 'root' and pwd.getpwnam(caller).pw_dir.startswith('/srv/sites/'):
+        if not edit or caller != s['SITE_USER'] or int(os.environ.get('SUDO_UID', '-1')) != pwd.getpwnam(caller).pw_uid:
+            raise PermissionError('A site owner may edit only this site policy')
+
+
+def run_site(s, user, command, *, capture=False):
+    args = ['runuser', '-u', user, '--', 'env', '-i',
+            'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+            *map(str, command)]
+    return subprocess.run(args, check=False, text=True,
+                          stdout=subprocess.PIPE if capture else None,
+                          stderr=subprocess.PIPE if capture else None)
+
+
+def wp_args(s, *args):
+    base = s['base']
+    return ['env', 'HOME=' + str(base / 'owner-tmp'),
+            'WP_CLI_CACHE_DIR=' + str(base / 'owner-tmp/wp-cli-cache'),
+            'php' + s['PHP_VERSION'], '/usr/local/bin/wp',
+            '--path=' + str(base / 'htdocs'), '--skip-plugins', '--skip-themes', '--no-color', *args]
+
+
+def mismatches(s):
+    result = run_site(s, s['SITE_USER'] + '-php', wp_args(s, 'plugin', 'verify-checksums', '--all', '--format=json'), capture=True)
+    try:
+        rows = json.loads(result.stdout)
+        if not isinstance(rows, list):
+            raise ValueError()
+    except ValueError:
+        if result.returncode == 0 and (result.stdout.startswith('Success: Verified ') or
+                                       result.stdout.strip() == 'Success: Plugin already verified.'):
+            rows = []
+        else:
+            raise ValueError('Checksum checker did not return JSON; inspect WP-CLI output')
+    return rows, result
+
+
+def enter(s):
+    authorized(s)
+    root = s['base'] / 'htdocs'
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError('Site document root is missing or a symlink')
+    # The account remains nologin for SSH. A root-initiated shell uses Bash directly.
+    rc = '/usr/local/lib/wp-hosting/site-shell.bashrc'
+    env = ['env', '-i', 'HOME=' + str(s['base'] / 'owner-tmp'),
+           'USER=' + s['SITE_USER'], 'LOGNAME=' + s['SITE_USER'],
+           'SITE_DOMAIN=' + s['domain'], 'SITE_USER=' + s['SITE_USER'],
+           'SITE_PHP=' + s['PHP_VERSION'], 'SITE_BASE=' + str(s['base']),
+           'TERM=' + os.environ.get('TERM', 'xterm'),
+           'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+           'GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=user.name',
+           'GIT_CONFIG_VALUE_0=Site operator', 'GIT_CONFIG_KEY_1=user.email',
+           'GIT_CONFIG_VALUE_1=operator@localhost',
+           '/bin/bash', '--noprofile', '--rcfile', rc, '-i']
+    os.chdir(root)
+    os.execvp('runuser', ['runuser', '-u', s['SITE_USER'], '--', *env])
+
+
+def show(s, raw=False):
+    authorized(s, edit=True)
+    data = load(s['base'])
+    if raw:
+        import yaml
+        print(yaml.safe_dump(data, sort_keys=False), end='')
+        return
+    print('KIND    COMPONENT                 UPDATE  CHECKSUMS       EXCEPTIONS  REASON')
+    for kind in ('plugins', 'themes'):
+        for name, rule in sorted(data[kind].items()):
+            update = rule.get('updates', {})
+            checks = rule.get('checksums', {})
+            print(f'{kind[:-1]:<7} {name:<25} {"HOLD" if update.get("hold") else "auto":<7} '
+                  f'{checks.get("mode", "wordpress_org") if kind == "plugins" else "-":<15} '
+                  f'{len(checks.get("exceptions", {})):<11} {update.get("reason", "")}')
+    if not data['plugins'] and not data['themes']:
+        print('(default policy: automatic updates; WordPress.org checksums)')
+
+
+def policy_command(args):
+    domain = choose_site(args.site)
+    s = site(domain)
+    authorized(s, edit=True)
+    action = args.action or 'menu'
+    if action == 'menu':
+        show(s)
+        action = ask('Policy action', ['done', 'hold', 'unhold', 'checksums', 'allow-file', 'remove-file'])
+        if action == 'done':
+            return
+    if action == 'show':
+        show(s, args.yaml)
+        return
+    data = load(s['base'])
+    kind = args.kind
+    entries = data[kind + 's']
+    installed = []
+    if kind == 'plugin':
+        directory = s['base'] / 'htdocs/wp-content/plugins'
+        if directory.is_dir():
+            installed = sorted(p.name for p in directory.iterdir() if p.is_dir() and SLUG.fullmatch(p.name))
+    elif kind == 'theme':
+        directory = s['base'] / 'htdocs/wp-content/themes'
+        if directory.is_dir():
+            installed = sorted(p.name for p in directory.iterdir() if p.is_dir() and SLUG.fullmatch(p.name))
+    name = args.component or ask(kind.title(), installed or sorted(entries))
+    if not SLUG.fullmatch(name):
+        raise ValueError('Invalid component name')
+    if action in ('allow-file', 'remove-file', 'checksums') and kind != 'plugin':
+        raise ValueError('Checksum policy applies to plugins only')
+    rule = copy.deepcopy(entries.get(name, {}))
+    if action == 'hold':
+        reason = args.reason or ask('Reason')
+        rule['updates'] = {'hold': True, 'reason': reason}
+    elif action == 'unhold':
+        rule.pop('updates', None)
+    elif action == 'checksums':
+        mode = args.mode or ask('Checksum mode', ['wordpress_org', 'git'])
+        if mode not in ('wordpress_org', 'git'):
+            raise ValueError('Invalid checksum mode')
+        if mode == 'git':
+            rule['checksums'] = {'mode': 'git', 'exceptions': {}}
+        else:
+            exceptions = rule.get('checksums', {}).get('exceptions', {})
+            if exceptions:
+                rule['checksums'] = {'mode': mode, 'exceptions': exceptions}
+            else:
+                rule.pop('checksums', None)
+    elif action in ('allow-file', 'remove-file'):
+        rows, _ = mismatches(s) if action == 'allow-file' else ([], None)
+        candidates = sorted({r['file'] for r in rows if isinstance(r, dict) and r.get('plugin_name') == name and safe_path(r.get('file'))}) if rows else []
+        if action == 'remove-file':
+            candidates = sorted(rule.get('checksums', {}).get('exceptions', {}))
+        relative = args.file or ask('File', candidates)
+        if not safe_path(relative):
+            raise ValueError('Invalid file path')
+        checks = rule.setdefault('checksums', {'mode': 'wordpress_org', 'exceptions': {}})
+        if checks['mode'] != 'wordpress_org':
+            raise ValueError('Set checksum mode to wordpress_org first')
+        if action == 'remove-file':
+            if relative not in checks['exceptions']:
+                raise ValueError('File is not an exception')
+            del checks['exceptions'][relative]
+            if not checks['exceptions']:
+                rule.pop('checksums', None)
+        else:
+            match = next((r for r in rows if isinstance(r, dict) and r.get('plugin_name') == name and r.get('file') == relative), None)
+            if not match:
+                raise ValueError('File is not a current checksum mismatch')
+            state = {'File was added': 'added', 'File doesn\'t verify against checksum': 'modified',
+                     'File does not exist': 'deleted', 'File is missing': 'deleted'}.get(match.get('message'))
+            if not state:
+                raise ValueError('Unknown checksum mismatch type')
+            exception = {'state': state}
+            if state != 'deleted':
+                exception['sha256'], preview = plugin_file(s['base'], name, relative)
+            elif not plugin_file_absent(s['base'], name, relative):
+                raise ValueError('Expected deleted file is present')
+            print(f'{name}/{relative}: {match["message"]}')
+            if state != 'deleted':
+                print('SHA-256:', exception['sha256'])
+                print('First 4096 bytes:\n' + preview.decode('utf-8', 'replace'))
+            checks['exceptions'][relative] = exception
+            if args.yes is False:
+                if not sys.stdin.isatty():
+                    raise ValueError('Use --yes after reviewing this file')
+                if input('Accept this exact file state? [y/N] ').strip().lower() != 'y':
+                    print('No change')
+                    return
+    if rule:
+        entries[name] = rule
+    else:
+        entries.pop(name, None)
+    save(s['base'], data)
+    show(s)
+
+
+def parse(argv):
+    if not argv:
+        print(SHORT)
+        action = ask('Task', ['enter', 'git', 'check', 'policy'])
+        argv = [action]
+    if argv == ['--help']:
+        print(HELP)
+        return 0
+    if len(argv) > 1 and argv[0] == 'policy' and '.' in argv[1]:
+        argv = ['policy', 'show', *argv[1:]]
+    parser = argparse.ArgumentParser(add_help=True)
+    subs = parser.add_subparsers(dest='command', required=True)
+    enter_parser = subs.add_parser('enter')
+    enter_parser.add_argument('site', nargs='?')
+    git_parser = subs.add_parser('git')
+    git_parser.add_argument('site', nargs='?')
+    git_parser.add_argument('git_args', nargs=argparse.REMAINDER)
+    check_parser = subs.add_parser('check')
+    check_parser.add_argument('site', nargs='?')
+    check_parser.add_argument('area', nargs='?', choices=['plugins'])
+    check_parser.add_argument('component', nargs='?')
+    pol = subs.add_parser('policy')
+    pol.add_argument('action', nargs='?', choices=['menu', 'show', 'hold', 'unhold', 'checksums', 'allow-file', 'remove-file'])
+    pol.add_argument('site', nargs='?')
+    pol.add_argument('component', nargs='?')
+    pol.add_argument('file', nargs='?')
+    pol.add_argument('--kind', choices=['plugin', 'theme'], default='plugin')
+    pol.add_argument('--reason')
+    pol.add_argument('--mode', choices=['wordpress_org', 'git'])
+    pol.add_argument('--yaml', action='store_true')
+    pol.add_argument('--yes', action='store_true')
+    args = parser.parse_args(argv)
+    if args.command == 'enter':
+        enter(site(choose_site(args.site)))
+    elif args.command == 'policy':
+        policy_command(args)
+    elif args.command == 'git':
+        s = site(choose_site(args.site))
+        authorized(s)
+        command = args.git_args or [ask('Git command', ['status', 'diff', 'log'])]
+        result = run_site(s, s['SITE_USER'], ['env', 'HOME=' + str(s['base'] / 'owner-tmp'),
+            'GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=user.name', 'GIT_CONFIG_VALUE_0=Site operator',
+            'GIT_CONFIG_KEY_1=user.email', 'GIT_CONFIG_VALUE_1=operator@localhost',
+            'git', '-C', s['base'] / 'htdocs', *command])
+        return result.returncode
+    elif args.command == 'check':
+        s = site(choose_site(args.site))
+        authorized(s)
+        if args.area == 'plugins':
+            rows, result = mismatches(s)
+            policy = load(s['base'])
+            for row in rows:
+                if args.component and row.get('plugin_name') != args.component:
+                    continue
+                accepted = allowed_mismatch(s['base'], policy, row)
+                print(('ACCEPTED ' if accepted else 'FAIL ') + f'{row.get("plugin_name")} {row.get("file")}: {row.get("message")}')
+            summary = check_plugins(s['base'], s['SITE_USER'], s['PHP_VERSION'], '/usr/local/bin/wp')
+            for line in result.stderr.splitlines():
+                if 'Could not retrieve the checksums for version ' in line:
+                    print('UNAVAILABLE ' + line.removeprefix('Warning: '))
+                elif summary.startswith('FAIL') and line.startswith('Error:'):
+                    print(line, file=sys.stderr)
+            print(summary)
+            return int(summary.startswith('FAIL'))
+        return subprocess.run(['/usr/local/sbin/wp-monitor', '--check', s['domain']]).returncode
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(parse(sys.argv[1:]))
+    except (ValueError, PermissionError, OSError) as exc:
+        print('wp-site: ' + str(exc), file=sys.stderr)
+        sys.exit(2)

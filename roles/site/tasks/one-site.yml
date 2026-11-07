@@ -26,6 +26,14 @@
   ansible.builtin.include_tasks: users.yml
 - name: Directories ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: dirs.yml
+- name: Allow the site owner to edit only its local code policy
+  ansible.builtin.copy:
+    content: "{{ site_cfg.user }} ALL=(root) NOPASSWD: /usr/local/sbin/wp-site policy *\n"
+    dest: "/etc/sudoers.d/wp-site-{{ site_cfg.user }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
 - name: Check for an existing site Git repository
   ansible.builtin.stat:
     path: "{{ site_cfg.path }}/htdocs/.git"

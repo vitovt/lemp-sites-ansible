@@ -296,3 +296,30 @@ another branch. This change was not deployed to the LXC host. Public IPv6,
 Cloudflare DNS-01 renewal, HTTP-01, the parent proxy, Telegram delivery, a
 mounted backup volume, and full-host disaster recovery remain outside this
 PHP validation run.
+
+## Site-local code policy on 2026-11-06 to 2026-11-07
+
+Local checks passed: 119 unit tests, Python and shell syntax checks, the site
+playbook syntax check, and the offline `ansible-lint` production profile with
+zero findings. The unit tests cover exact added, modified, and deleted file
+rules; changed hashes; unknown files; Git mode without a clean baseline;
+per-site update holds; and full or partial helper commands.
+
+On the disposable VM 241, a targeted playbook installed only the helper files,
+monitor, updater, and one test sudo rule. A second run reported `changed=0`.
+`jump-in test2.example` ran as `test2_example` in that site's `htdocs`; the
+site-local `policy` command worked from its shell. A test hold was written as
+root-owned `0644` policy and removed from the site shell.
+
+The test installed Hello Dolly and added one extra file. Both diagnostics and
+monitoring reported a checksum failure. After the helper accepted only that
+file's exact hash, both reported success. Changing its content made both fail
+again. The file, test plugin, and test policy were removed. The final Git
+status and plugin checksum checks passed for the test site.
+
+The full `scripts/lemp 241-ans01-presta doctor` stopped before changes because
+the controller lacks saved DB and Valkey passwords for the existing test site.
+Thus, the full server playbook and `site-apply` were not exercised for this
+change. Backup, restore, and clone of a policy file were checked in code and
+documentation only, not by a live lifecycle run. Server 125 was not accessed
+or changed.

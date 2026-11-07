@@ -177,8 +177,8 @@ journald. Long messages are split into bounded chunks.
 Weekly checked updates are enabled by default. The runner requires a clean Git
 baseline and a completed backup of the site from today. It does not create a
 backup. The scheduled run applies minor updates. It skips held components in
-`/etc/wp-hosting/update-policy.yml`. Set holds in the server inventory file
-`update-policy.yml`.
+`/srv/sites/<domain>/conf/code-policy.yml`. Set holds with `wp-site policy` on
+the managed server. See [Work With Site Code](SITE_CODE_POLICY.md).
 
 For a manual run, use `--skip-backup-check` only when you accept that risk.
 The updater stages only the updated component. A dirty target needs

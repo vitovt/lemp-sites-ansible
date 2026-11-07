@@ -1,0 +1,3 @@
+#!/bin/sh
+# Open an operator shell for one site without enabling site-user SSH login.
+exec /usr/local/sbin/wp-site enter "$@"

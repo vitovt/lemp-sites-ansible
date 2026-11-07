@@ -332,6 +332,7 @@ def restore_database(s, path, db, manifest=None):
 
 
 def clone(source, target, db, *, confirm=False, activate=False):
+    from code_policy import load as load_code_policy, save as save_code_policy, path_for as code_policy_path
     if source['domain'] == target['domain']:
         raise ValueError('Source and target must differ')
     if (target['base'] / 'htdocs/wp-includes/version.php').exists() and not confirm:
@@ -342,6 +343,10 @@ def clone(source, target, db, *, confirm=False, activate=False):
             raise ValueError('Clone source contains a symlink; review it first')
     source_prefix = prefix(source)
     target_password = credentials(target)
+    source_policy = load_code_policy(source['base'])
+    target_policy = load_code_policy(target['base'])
+    source_has_policy = code_policy_path(source['base']).exists()
+    target_has_policy = code_policy_path(target['base']).exists()
     stamp = str(time.time_ns())
     recovery = target['base'] / ('backup/clone-' + stamp)
     recovery.mkdir(mode=0o700)
@@ -377,6 +382,10 @@ def clone(source, target, db, *, confirm=False, activate=False):
             if not activate:
                 wp(target, 'option', 'update', 'blog_public', '0')
             run(['/usr/local/sbin/wp-git-commit', target['domain'], 'clone of ' + source['domain']])
+            if source_has_policy:
+                save_code_policy(target['base'], source_policy)
+            else:
+                code_policy_path(target['base']).unlink(missing_ok=True)
             (target['base'] / 'conf/wordpress-installed').write_text('installed\n')
             # Keep the original files with the rollback SQL, readable by root only.
             flush_cache(target)
@@ -388,6 +397,10 @@ def clone(source, target, db, *, confirm=False, activate=False):
                 shutil.rmtree(target['base'] / 'htdocs')
                 os.rename(old, target['base'] / 'htdocs')
             shutil.rmtree(staged, ignore_errors=True)
+            if target_has_policy:
+                save_code_policy(target['base'], target_policy)
+            else:
+                code_policy_path(target['base']).unlink(missing_ok=True)
             flush_cache(target)
             (source['base'] / 'conf/maintenance').unlink(missing_ok=True)
             (target['base'] / 'conf/maintenance').unlink(missing_ok=True)
@@ -432,6 +445,7 @@ def remove_site(s, db, archive_dir, *, without_backup=False):
                 run(['systemctl', 'disable', '--now', 'php' + version + '-fpm'])
         for filename in ['/etc/cron.d/wp-' + s['SITE_USER'], '/etc/logrotate.d/wp-' + s['SITE_USER'], '/var/lib/wp-monitor/' + s['domain'] + '.admins']:
             Path(filename).unlink(missing_ok=True)
+        (Path('/etc/sudoers.d') / ('wp-site-' + s['SITE_USER'])).unlink(missing_ok=True)
         hosts = Path('/etc/hosts')
         hosts.write_text(''.join(line for line in hosts.read_text().splitlines(True) if not line.rstrip().endswith('# wp-site ' + s['domain'])))
         db.query(f'DROP DATABASE `{s["DB_NAME"]}`')

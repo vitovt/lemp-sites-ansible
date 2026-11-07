@@ -12,6 +12,7 @@ unprivileged LXC containers. Each server has one private directory under
 - HTTP-01 through Nginx as an explicit exception.
 - Firewall rules, blocked SMTP, page cache, checked updates, and alerts.
 - Restic backup, restore, staging clone, site removal, and health checks.
+- Site owner shell, local code rules, checked updates, and Git diagnostics.
 - Controller tests and isolated integration tests on a disposable VM.
 
 ## Requirements
@@ -88,6 +89,7 @@ contents, password option, and optional cleanup after export.
 - [Example inventory](Docs/EXAMPLES.md): all template fields and copy steps.
 - [Controller archive](Docs/ARCHIVE.md): encrypted transfer and recovery.
 - [Operations](Docs/OPERATIONS.md): site commands, backup, and restore.
+- [Site code](Docs/SITE_CODE_POLICY.md): `jump-in`, local update holds, and checksum rules.
 - [PHP versions](Docs/PHP_VERSION_SWITCH_SPEC.md): branch changes and recovery.
 - [Security](Docs/SECURITY.md): access model and threat boundaries.
 - [Reference](Docs/REFERENCE.md): playbooks and roles.
