@@ -1,3 +1,5 @@
+import contextlib
+import io
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -65,6 +67,37 @@ class InterfaceTests(unittest.TestCase):
                  patch.object(module, 'policy', return_value={}), \
                  patch.object(module, 'report'):
                 self.assertFalse(module.apply(site, args))
+
+    def test_backup_refusal_is_visible_and_does_not_run_updates(self):
+        args = SimpleNamespace(scope='core', policy='minor', skip_backup_check=False)
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'logs').mkdir()
+            site = {'base': base, 'domain': 'example.com'}
+            output, errors = io.StringIO(), io.StringIO()
+            with patch.object(module, 'backup_today', return_value=None), \
+                 patch.object(module, 'wp') as wp, \
+                 patch.object(module.subprocess, 'run'), \
+                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                self.assertTrue(module.apply(site, args))
+            wp.assert_not_called()
+            self.assertIn('FAIL No completed site backup from today', errors.getvalue())
+            logs = list((base / 'logs').glob('wp-update-*.log'))
+            self.assertEqual(len(logs), 1)
+            self.assertIn('LOG ' + str(logs[0]), errors.getvalue())
+            self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
+            self.assertIn('FAIL No completed site backup from today', logs[0].read_text())
+            self.assertFalse((base / 'conf/maintenance').exists())
+
+    def test_reporting_failures_do_not_hide_the_original_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            errors = io.StringIO()
+            with patch.object(module.subprocess, 'run', side_effect=OSError('unavailable')), \
+                 contextlib.redirect_stderr(errors):
+                module.report({'base': Path(directory)}, ['FAIL original cause', 'FAIL'])
+            self.assertIn('FAIL original cause', errors.getvalue())
+            self.assertIn('log could not be written', errors.getvalue())
+            self.assertIn('syslog delivery is unavailable', errors.getvalue())
 
     def test_component_commit_keeps_other_staged_changes(self):
         with tempfile.TemporaryDirectory() as directory:

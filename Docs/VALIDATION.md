@@ -450,3 +450,29 @@ tools and sites on VM 241 were not replaced. Server 125 was not accessed.
 - Jailkit, chroot, SSH authentication, remote command mode, SFTP, and system login-shell changes are not implemented.
   The future filesystem and identity contract is described in `SITE_SHELL.md`.
 - GitHub-hosted execution of the added CI job was not run. The same local container command passed.
+
+## Backup identity and updater diagnostics (2026-11-07)
+
+### Passed
+
+- `tests/check.sh`: 197 unit tests, all playbook syntax checks, Python parsing,
+  and shell syntax checks.
+- `ansible-lint --offline`: production profile; no failures or warnings.
+- `tests/run-backup-manager-integration.sh`: 9 integration tests passed.
+  The disposable container had no network access or host mounts. Credentials
+  and MariaDB data were generated inside the container.
+- Real manual and nightly backups recorded the final complete snapshot ID.
+  The installed updater accepted those records, old pre-tag records, and new
+  records after another tag change. Reading did not rewrite old records.
+- Ambiguous, incomplete, unrelated, wrong-site, and old-date records were
+  rejected by unit regressions. Missing site manifests did not pass the gate.
+- A missing backup produced a visible failure and private log path without
+  calling an update. Log and syslog failures did not hide the original error.
+- Repeated tool installation reported `changed=0`.
+
+### Not tested
+
+- Servers 125 and 241 were not accessed or changed.
+- No live WordPress core, plugin, or theme update was run.
+- Real Telegram delivery, remote restic repositories, and GitHub Actions were
+  not tested for this change. Existing server records were not modified.

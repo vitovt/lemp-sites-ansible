@@ -201,3 +201,13 @@ The roles do not install an MTA. With SMTP disabled, known MTA services from the
 base image are stopped and masked. Future mail support requires an explicit
 firewall change and a reviewed transport configuration. HTTP mail APIs are outside
 the SMTP port block.
+
+## Update command results
+
+`wp-update apply` prints its result and the exact site log path. A failed backup
+check prints `FAIL No completed site backup from today` and returns exit code 1.
+It does not start an update. Review the result before you retry.
+
+Logs are private files under `/srv/sites/<domain>/logs/wp-update-*.log`.
+If the log cannot be written, the command prints a warning. Use
+`journalctl -t wp-update` to check syslog where available.

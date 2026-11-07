@@ -146,8 +146,9 @@ def inventory(s, scope, release, holds, log=None):
                 continue
             if name in holds.get(kind + 's', {}):
                 message = f'SKIP {kind}:{name}: held: {holds[kind + "s"][name]}'
-                print(message)
-                if log is not None:
+                if log is None:
+                    print(message)
+                else:
                     log.append(message)
                 continue
             if item.get('update') != 'available':
@@ -198,15 +199,24 @@ def commit_paths(s, paths, message):
 
 
 def report(s, lines):
+    # Show the result even when file or syslog delivery fails. Do not log argv,
+    # credentials or raw subprocess output; these lines are the existing summary.
+    for item in lines:
+        print(item, file=sys.stderr if item.startswith(('FAIL', 'SKIP')) else sys.stdout, flush=True)
     line = '\n'.join(lines) + '\n'
     log = s['base'] / 'logs' / ('wp-update-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '.log')
-    subprocess.run(['logger', '-t', 'wp-update'], input=line, text=True, check=False)
     try:
         descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(descriptor, 'w') as stream:
             stream.write(line)
+        print('LOG ' + str(log), file=sys.stderr if lines[-1] == 'FAIL' else sys.stdout, flush=True)
     except OSError:
-        subprocess.run(['logger', '-t', 'wp-update', 'Per-site update log could not be written'], check=False)
+        print('WARNING update log could not be written: ' + str(log) + '; see journalctl -t wp-update',
+              file=sys.stderr, flush=True)
+    try:
+        subprocess.run(['logger', '-t', 'wp-update'], input=line, text=True, check=False)
+    except OSError:
+        print('WARNING syslog delivery is unavailable', file=sys.stderr, flush=True)
 
 
 def apply(s, args):
