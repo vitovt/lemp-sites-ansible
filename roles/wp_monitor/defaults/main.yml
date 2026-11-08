@@ -17,6 +17,7 @@
 #   stray_php         PHP directly in wp-content (except wp_monitor_dropins),
 #                     hidden .*.php and .user.ini anywhere
 #   php_in_writable   *.php / *.phtml / *.phar in uploads, cache, upgrade
+#   permissions      read-only site-fix-perms --check (ownership and modes)
 #   git_status        uncommitted or untracked files in htdocs (baseline: wp-git-commit)
 #   admin_users       administrators (id + login) vs baseline: added/removed = alert,
 #                     baseline changes only after an explicit --ack
@@ -37,6 +38,7 @@ wp_monitor_checks:
   - plugin_checksums
   - stray_php
   - php_in_writable
+  - permissions
   - git_status
   - admin_users
   - content_spike

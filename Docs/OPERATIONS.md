@@ -247,3 +247,11 @@ get no access through the world permission bits.
 This change does not repair existing files on an undeployed server. After
 installation, run `site-fix-perms SITE` once, then repeat with `--check`.
 Keep the automatic update timer enabled if automatic updates are required.
+
+### Permission monitoring
+
+`wp-monitor` includes `permissions` in its default checks. It runs
+`site-fix-perms SITE --check` and prints only `PASS` or `FAIL` for this check.
+It does not repair files. To see details, run `site-fix-perms SITE --check`
+as root. Scheduled failures use the existing combined Telegram alert.
+If you override `wp_monitor_checks`, add `permissions` to that list.

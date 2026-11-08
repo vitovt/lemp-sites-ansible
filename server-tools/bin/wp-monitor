@@ -36,8 +36,9 @@ has() { case " $CHECKS " in *" $1 "*) return 0;; esac; return 1; }
 ok()   { echo "PASS $SITE $1${2:+: $2}"; }
 skip() { echo "SKIP $SITE $1${2:+: $2}"; }
 p() {
-    echo "FAIL $SITE $1: $2"; failed=1; report+="  - $SITE $1: $2"$'\n'
+    echo "FAIL $SITE $1${2:+: $2}"; failed=1; report+="  - $SITE $1${2:+: $2}"$'\n'
     case "$1" in
+        permissions) echo "HINT As root, run site-fix-perms $SITE --check for details. Review the findings before any repair." >&2 ;;
         plugin_checksums) echo "HINT Run wp-site check SITE plugins. Compare each difference with trusted code before adding local policy exceptions." >&2 ;;
         git_status) echo "HINT Run jump-in SITE, then git status --short and git diff. Commit only reviewed paths; do not accept unknown changes." >&2 ;;
         admin_users) echo "HINT Review WordPress administrators. After you verify intentional changes, use wp-monitor --ack SITE." >&2 ;;
@@ -94,6 +95,14 @@ check_site() {  # $1 = site dir
             p wordpress "installed core is missing"; return
         fi
         skip wordpress "not installed, site skipped"; return
+    fi
+
+    if has permissions; then
+        if /usr/local/sbin/site-fix-perms "$DOMAIN" --check >/dev/null 2>&1; then
+            ok permissions
+        else
+            p permissions ""
+        fi
     fi
 
     # --- health ---
