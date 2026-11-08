@@ -150,6 +150,15 @@ class InterfaceTests(unittest.TestCase):
         self.assertIn('HINT ', errors.getvalue())
         self.assertNotIn('Traceback', errors.getvalue())
 
+    def test_commands_override_inherited_umask_without_changing_parent(self):
+        previous_mask = os.umask(0o022)
+        try:
+            result = module.command([sys.executable, '-c', 'import os; print(oct(os.umask(0)))'])
+            self.assertEqual(result.stdout.strip(), '0o27')
+            self.assertEqual(os.umask(0o022), 0o022)
+        finally:
+            os.umask(previous_mask)
+
     def test_component_commit_keeps_other_staged_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -174,8 +183,19 @@ class InterfaceTests(unittest.TestCase):
                     args = args[4:]
                 return original(args, **kwargs)
             s = {'base': base, 'SITE_USER': pwd.getpwuid(os.getuid()).pw_name}
-            with patch.object(module, 'command', side_effect=without_runuser):
-                commit = module.commit_paths(s, ['wp-content/plugins/selected'], 'update selected')
+            previous_mask = os.umask(0o022)
+            old_objects = set((root / '.git/objects').rglob('*'))
+            try:
+                with patch.object(module, 'command', side_effect=without_runuser):
+                    commit = module.commit_paths(s, ['wp-content/plugins/selected'], 'update selected')
+            finally:
+                os.umask(previous_mask)
+            new_objects = set((root / '.git/objects').rglob('*')) - old_objects
+            self.assertTrue(new_objects)
+            for path in [root / '.git/index', *new_objects]:
+                self.assertEqual(path.stat().st_mode & 0o027, 0, str(path))
+                self.assertEqual(path.stat().st_uid, os.getuid(), str(path))
+            self.assertEqual((root / '.git/index').stat().st_mode & 0o777, 0o640)
             self.assertEqual(git('rev-parse', 'HEAD'), commit)
             self.assertEqual(git('show', '--format=', '--name-only', 'HEAD'),
                              'wp-content/plugins/selected/main.php')

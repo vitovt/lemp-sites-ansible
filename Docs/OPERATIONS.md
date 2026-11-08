@@ -222,3 +222,14 @@ can use `--skip-backup-check` if you accept the recovery risk. Automatic runs
 cannot skip this check. A dirty target can use `--allow-dirty-target` only
 in manual mode; the update can overwrite local edits and leaves the target
 without an automatic commit. Review files before you use either option.
+
+### Git permissions after updates
+
+Updater child commands use `umask 0027` for manual and automatic runs.
+The update service also sets `UMask=0027`. New Git index files use `0640`;
+new loose objects can use `0440`. The code owner keeps access. Other users
+get no access through the world permission bits.
+
+This change does not repair existing files on an undeployed server. After
+installation, run `site-fix-perms SITE` once, then repeat with `--check`.
+Keep the automatic update timer enabled if automatic updates are required.

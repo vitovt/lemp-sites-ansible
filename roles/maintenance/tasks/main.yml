@@ -14,6 +14,7 @@
         After=nginx.service mariadb.service
         [Service]
         Type=oneshot
+        UMask=0027
         ExecStart=/usr/local/sbin/wp-update run --automatic --all-sites
         TimeoutStartSec=2h
         Nice=10

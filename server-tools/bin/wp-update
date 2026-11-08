@@ -225,7 +225,9 @@ class HelpParser(argparse.ArgumentParser):
 
 
 def command(args, *, env=None, check=True):
-    result = subprocess.run([str(x) for x in args], env=env, capture_output=True, text=True)
+    # Both timer and manual runs must create owner files without world access.
+    # Set the child's mask explicitly instead of inheriting root's usual 0022.
+    result = subprocess.run([str(x) for x in args], env=env, capture_output=True, text=True, umask=0o027)
     if check and result.returncode:
         raise RuntimeError(f"{Path(args[0]).name} failed (exit {result.returncode})")
     return result

@@ -14,6 +14,7 @@ class MaintenanceTests(unittest.TestCase):
         service = next(item['content'] for item in service_task['loop'] if item['name'] == 'wp-update.service')
         self.assertIn('ExecStart=/usr/local/sbin/wp-update run --automatic --all-sites', service)
         self.assertNotIn('wp-backup update', service)
+        self.assertIn('UMask=0027', service)
 
     def test_new_command_does_not_update_with_no_arguments(self):
         script = ROOT / 'server-tools/bin/wp-update'
