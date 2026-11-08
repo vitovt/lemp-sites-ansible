@@ -67,3 +67,20 @@ client exceptions. Add a tool-specific hint when you add a new command.
 `SITE`, `SERVER`, and `PATH` in a hint are placeholders. Replace them before use.
 Review files before a commit, checksum exception, administrator acknowledgement,
 or permission repair. Delivery alone does not grant sudo or secret access.
+
+## Find a command
+
+Run `lemp-help` on the server. It lists controller commands, root commands,
+and site-owner commands with one example each. It does not execute commands
+or read site secrets. You do not need root to read the reference.
+
+```sh
+lemp-help
+lemp-help wp-backup-manager
+lemp-help --all
+```
+
+Use `jump-in-help` for detailed work inside a site shell. Controller commands
+run in the cloned repository, not on the hosting server. To read this reference
+before deployment, run `PYTHONPATH=server-tools/lib python3 -c 'import lemp_help; lemp_help.main()'`
+in the repository. Normal `server_tools` delivery installs the new command.

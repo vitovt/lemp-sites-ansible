@@ -1,0 +1,9 @@
+#!/usr/bin/python3 -I
+"""Show the hosting command reference without running commands."""
+import sys
+sys.path.insert(0, '/usr/local/lib/wp-hosting/lib')
+from lemp_help import main
+from cli_diagnostics import run_cli
+
+if __name__ == '__main__':
+    sys.exit(run_cli('lemp-help', main))
