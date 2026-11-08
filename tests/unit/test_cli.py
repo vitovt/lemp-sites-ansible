@@ -39,6 +39,39 @@ class CLITests(unittest.TestCase):
             self.assertEqual(site['cloudflare_token_ref'], 'customer_b')
             self.assertTrue(site['wp_install'])
 
+    def test_add_saves_and_previews_before_confirmation(self):
+        for config, flags, expected in [
+            ('', [], 'secrets/cloudflare.ini'),
+            ('', ['--cloudflare-token-ref', 'customer_b'], 'secrets/cloudflare/customer_b.ini'),
+            ('          certbot_cloudflare_method: webroot\n', [], 'HTTP-01'),
+            ('          certbot_cloudflare_enabled: false\n', [], 'ACME disabled'),
+        ]:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                server = base / 'test'
+                server.mkdir()
+                (server / 'settings.yml').write_text(
+                    'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
+                    '          secrets_dir: "{{ inventory_dir }}/secrets"\n' + config)
+                (server / 'sites.yml').write_text('wp_sites: {}\n')
+                binary = base / 'bin'
+                binary.mkdir()
+                marker = base / 'deployed'
+                command = binary / 'ansible-playbook'
+                command.write_text('#!/bin/sh\ntouch "' + str(marker) + '"\n')
+                command.chmod(0o755)
+                result = subprocess.run([
+                    str(ROOT / 'scripts/site'), 'add', 'test', 'example.com',
+                    'example', '8.4', '--install-wp', *flags],
+                    input='n\n', text=True, capture_output=True,
+                    env={**os.environ, 'LEMP_INVENTORIES_ROOT': directory,
+                         'PATH': str(binary) + ':' + os.environ['PATH']})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('example.com', yaml.safe_load((server / 'sites.yml').read_text())['wp_sites'])
+                self.assertFalse(marker.exists())
+                self.assertLess(result.stdout.index('php_version:'), result.stdout.index('Deploy '))
+                self.assertLess(result.stdout.index(expected), result.stdout.index('Deploy '))
+
     def test_clone_can_select_a_named_token_for_new_target(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

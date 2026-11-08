@@ -122,7 +122,7 @@ def main():
         if result.returncode:
             raise RuntimeError('Deployment failed. The inventory records the requested site; fix the error and converge again.')
 
-    if args.command != 'clone' and not args.yes and not args.dry_run:
+    if args.command == 'remove' and not args.yes and not args.dry_run:
         expected = args.domain if args.command == 'remove' else 'yes'
         no_backup = ' without a backup' if args.command == 'remove' and args.no_backup else ''
         if input(f'{args.command} {args.domain} on {args.host}{no_backup}. Type {expected}: ') != expected:
@@ -156,6 +156,24 @@ def main():
             print(yaml.safe_dump(plain({target: sites[target]}), sort_keys=False), end='')
             if not args.dry_run:
                 write(path, data)
+                if args.command == 'add':
+                    config = hosts[args.host]
+                    print(f'Configuration saved: {path}')
+                    if not config.get('certbot_cloudflare_enabled', True):
+                        print('Certificate: ACME disabled. No Cloudflare API token will be used.')
+                    elif config.get('certbot_cloudflare_method', 'dns-cloudflare') == 'webroot':
+                        print('Certificate: Let\'s Encrypt HTTP-01 through nginx webroot: '
+                              + str(config.get('certbot_cloudflare_webroot', '/var/lib/letsencrypt')))
+                        print('No Cloudflare API token will be used. Public port 80 must reach this server.')
+                    else:
+                        ref = sites[target].get('cloudflare_token_ref')
+                        source = server_dir / 'secrets' / ('cloudflare/' + ref + '.ini' if ref else 'cloudflare.ini')
+                        print('Certificate: Let\'s Encrypt DNS-01 through Cloudflare.')
+                        print(f'Cloudflare API token file: {source} (token value is not displayed)')
+                    if not args.yes:
+                        if input(f'Deploy {target} on {args.host}? [y/N]: ').strip().lower() not in ('y', 'yes'):
+                            print('Deployment cancelled. Configuration remains saved. Edit it before applying.')
+                            return 0
                 play('site', '-e', f'wp_site_only={target}')
         elif args.command == 'add':
             parser.error('Site already exists')

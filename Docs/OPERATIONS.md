@@ -255,3 +255,16 @@ Keep the automatic update timer enabled if automatic updates are required.
 It does not repair files. To see details, run `site-fix-perms SITE --check`
 as root. Scheduled failures use the existing combined Telegram alert.
 If you override `wp_monitor_checks`, add `permissions` to that list.
+
+### Review a new site before deployment
+
+`scripts/site add` saves the new entry in `sites.yml` first. It prints the entry,
+certificate method, and Cloudflare token file path when DNS-01 is selected.
+It does not print the token value. Answer `y` to deploy. Answer `n` to keep the
+configuration without deployment. Edit the saved entry, then run:
+
+```bash
+scripts/lemp SERVER site SITE
+```
+
+Use `--yes` to deploy without the prompt. `--dry-run` does not write or deploy.
