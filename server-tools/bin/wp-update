@@ -47,9 +47,9 @@ update target. Unrelated local changes are allowed and are not added to the comm
 An uncertain failed update keeps its maintenance gate enabled.
 No automatic rollback is performed."""
 CHANGELOG_HELP = """Changelog (plan, apply, and run):
-  --changelog brief    Show up to five releases with short notes. Default.
+  --changelog brief    Show up to five releases with short notes.
   --changelog full     Show all published entries in OLD < release <= NEW.
-  --changelog none     Do not fetch, print, or save release notes.
+  --changelog none     Do not fetch, print, or save release notes. Default.
 
 Plugin notes come from WordPress.org. Missing notes never fail an update.
 Core uses a release-note link. Themes and private plugins may have no notes.
@@ -501,7 +501,7 @@ def apply(s, args):
         failed = True
     lines.append('FAIL' if failed else 'PASS')
     report(s, lines)
-    show_changelogs(completed, getattr(args, 'changelog', 'brief'), s)
+    show_changelogs(completed, getattr(args, 'changelog', 'none'), s)
     if failed:
         subprocess.run(['/usr/local/sbin/tg-alert', f'wp-update failed: {s["domain"]}; see site log'], check=False)
     return failed
@@ -520,7 +520,7 @@ def main(argv):
     parser.add_argument('domain', nargs='?')
     parser.add_argument('--scope')
     parser.add_argument('--policy', choices=['minor', 'latest'])
-    parser.add_argument('--changelog', choices=['full', 'brief', 'none'], default='brief')
+    parser.add_argument('--changelog', choices=['full', 'brief', 'none'], default='none')
     parser.add_argument('--automatic', action='store_true')
     parser.add_argument('--all-sites', action='store_true')
     parser.add_argument('--skip-backup-check', action='store_true')

@@ -118,7 +118,7 @@ class TransportTests(unittest.TestCase):
 
 class UpdaterTests(unittest.TestCase):
     def test_cli_modes_and_default(self):
-        for option in ([], ['--changelog', 'full'], ['--changelog', 'none']):
+        for option in ([], ['--changelog', 'full'], ['--changelog', 'brief'], ['--changelog', 'none']):
             with contextlib.redirect_stdout(io.StringIO()), \
                     patch.object(updater.os, 'geteuid', return_value=0), \
                     patch.object(updater, 'library', return_value=(lambda name: {'domain': name, 'base': Path('/not-used')}, contextlib.nullcontext)), \
@@ -128,7 +128,7 @@ class UpdaterTests(unittest.TestCase):
                     patch.object(updater, 'inventory', return_value=[ENTRY]), \
                     patch.object(updater, 'show_changelogs') as display:
                 self.assertEqual(updater.main(['plan', 'example.com', *option]), 0)
-                display.assert_called_once_with([ENTRY], option[-1] if option else 'brief')
+                display.assert_called_once_with([ENTRY], option[-1] if option else 'none')
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
             updater.main(['plan', 'example.com', '--changelog', 'invalid'])
         self.assertEqual(error.exception.code, 2)
@@ -180,5 +180,20 @@ class UpdaterTests(unittest.TestCase):
     def test_none_skips_render_and_writes(self):
         with patch.object(notes, 'render') as render, patch.object(notes, 'save_notes') as save:
             updater.show_changelogs([ENTRY], 'none', {})
+        render.assert_not_called()
+        save.assert_not_called()
+
+
+class DefaultChangelogTests(unittest.TestCase):
+    def test_default_performs_no_lookup_or_write(self):
+        with contextlib.redirect_stdout(io.StringIO()), \
+                patch.object(updater.os, 'geteuid', return_value=0), \
+                patch.object(updater, 'library', return_value=(lambda name: {'domain': name, 'base': Path('/not-used')}, contextlib.nullcontext)), \
+                patch.object(updater, 'backup_today', return_value=('ID', 'today')), \
+                patch.object(updater, 'changed', return_value=set()), \
+                patch.object(updater, 'policy', return_value={}), \
+                patch.object(updater, 'inventory', return_value=[ENTRY]), \
+                patch.object(notes, 'render') as render, patch.object(notes, 'save_notes') as save:
+            self.assertEqual(updater.main(['plan', 'example.com']), 0)
         render.assert_not_called()
         save.assert_not_called()

@@ -11,9 +11,9 @@ wp-update run --automatic --all-sites --changelog none
 
 | Mode | Terminal output | Saved report after apply/run |
 | --- | --- | --- |
-| `brief` (default) | Up to five newest releases; up to two source lines per release, limited to 240 characters | Full available notes |
+| `brief` | Up to five newest releases; up to two source lines per release, limited to 240 characters | Full available notes |
 | `full` | All published entries in the selected range | Full available notes |
-| `none` | No release notes; no source requests | None |
+| `none` (default) | No release notes; no source requests | None |
 
 The selected range is `OLD < release <= NEW`. Numeric versions are compared as
 numbers: `1.10` is newer than `1.9`. Prerelease or non-numeric ranges are not
