@@ -32,9 +32,31 @@ wp-site check example.com plugins
 Inside the shell, Tab completes commands and component names. Run
 `jump-in-help policy` for policy examples. See [site shell](SITE_SHELL.md).
 
-Use `wp-site policy hold example.com PLUGIN --reason "Local fix"` to block an
-update. Use `wp-site policy allow-file example.com PLUGIN PATH --yes` only
-after you review that exact file. See [site code operations](SITE_CODE_POLICY.md).
+### Exclude a plugin from managed updates
+
+- [ ] Use the plugin directory name as its slug, for example `akismet`.
+- [ ] Run from root on the server:
+
+```sh
+wp-site policy hold example.com akismet --reason "Local patch; keep this version"
+wp-site policy show example.com
+```
+
+Or enter the site shell:
+
+```sh
+jump-in example.com
+policy hold akismet --reason "Local patch; keep this version"
+policy show
+# Permit managed updates again:
+policy unhold akismet
+exit
+```
+
+A hold applies only to this site's `wp-update` runs. It does not disable
+checksum checks. Raw `wp plugin update` calls do not honour the hold. Local
+rules are site data; do not put them in Ansible. Use `allow-file` only after
+you review the exact file state. See [site code operations](SITE_CODE_POLICY.md).
 
 ## 1. Prepare the control machine
 
@@ -203,19 +225,95 @@ delegates these rules to the parent host. See [network modes](DEPLOYMENT.md#netw
 
 ## 12. Enable Telegram alerts
 
-- [ ] Copy `inventories/my-server/secrets/telegram.env.example` to
-  `telegram.env` in the same directory.
-- [ ] Add the bot token and chat ID. Set file mode `0600`.
-- [ ] Apply and run a health check.
+### Create the bot and select the chat
+
+- [ ] In Telegram, contact [BotFather](https://t.me/BotFather). Run `/newbot`.
+- [ ] Save the token privately. Open your new bot and send `/start`.
+- [ ] Obtain your chat ID. The code below runs on the control machine. It asks
+  for the token without echoing it or putting it in shell history.
 
 ```sh
-chmod 600 inventories/my-server/secrets/telegram.env
-scripts/lemp my-server site
-sudo wp-monitor --check example.com
+python3 - <<'PYCODE'
+import getpass
+import json
+import urllib.request
+
+token = getpass.getpass("Bot token: ").strip()
+try:
+    url = "https://api.telegram.org/bot" + token + "/getUpdates"
+    with urllib.request.urlopen(url, timeout=20) as response:
+        data = json.load(response)
+except Exception:
+    raise SystemExit("Request failed. Check the token and network access.") from None
+
+chats = {}
+for update in data.get("result", []):
+    chat = update.get("message", {}).get("chat", {})
+    if "id" in chat:
+        chats[chat["id"]] = chat.get("title") or chat.get("first_name", "")
+for chat_id, name in chats.items():
+    print(chat_id, name)
+if not chats:
+    print("Send /start to your bot, then retry.")
+PYCODE
 ```
 
-Run the last command on the server. Without `telegram.env`, alerts go to
-syslog only. See [Telegram setup](DEPLOYMENT.md#telegram-alerts).
+Use the ID of the intended chat. Do not use the bot's own ID. See the
+[Telegram tutorial](https://core.telegram.org/bots/tutorial) and
+[getUpdates reference](https://core.telegram.org/bots/api#getupdates).
+
+### Store and deliver credentials
+
+- [ ] From the repository root, copy the safe template. `cp -n` preserves an
+  existing credentials file.
+
+```sh
+cp -n inventories/example-server/secrets/telegram.env.example \
+  inventories/my-server/secrets/telegram.env
+chmod 600 inventories/my-server/secrets/telegram.env
+nano inventories/my-server/secrets/telegram.env
+```
+
+Set these values in the file:
+
+```dotenv
+TG_BOT_TOKEN=YOUR_BOT_TOKEN
+TG_CHAT_ID=YOUR_CHAT_ID
+```
+
+- [ ] Keep this file out of Git and chat messages.
+- [ ] On an installed server, deliver only the Telegram configuration:
+
+```sh
+ansible-playbook \
+  -i inventories/my-server/settings.yml playbooks/site.yml \
+  --limit my-server --tags telegram_alert --skip-tags preflight,server_tools
+```
+
+This focused run skips the normally always-run preflight and tool delivery
+roles. It does not deploy other local helper changes. A full
+`scripts/lemp my-server site` run also installs the credentials, including on
+a new server. The installed file is `/etc/tg-alert.env`, root-owned, mode `0600`.
+
+### Test delivery on the server
+
+Run as root. This sends a real Telegram message:
+
+```sh
+tg-alert "Manual test alert"
+echo $?
+```
+
+Expect the message in the selected chat and exit code `0`. If delivery fails:
+
+```sh
+journalctl -t tg-alert -n 30 --no-pager
+```
+
+Check token, chat ID, DNS, and HTTPS access to `api.telegram.org`. Without a
+credentials file, the helper still logs locally but cannot deliver Telegram
+messages and returns failure. `wp-monitor --check` does not send a test alert.
+See [Telegram setup](DEPLOYMENT.md#telegram-alerts).
 
 ## 13. Check health and updates
 
@@ -230,3 +328,64 @@ sudo wp-update apply example.com --scope all --policy minor
 
 Run the `sudo` commands on the server. Updates run from a root-owned timer;
 WordPress cannot edit its own code. See [operations](OPERATIONS.md#monitoring-and-updates).
+
+### Read a monitor report
+
+- [ ] Run on the managed server as root. Omit `sudo` in a root session.
+
+```sh
+# One site:
+sudo wp-monitor --check example.com
+echo $?
+
+# Host checks and all sites:
+sudo wp-monitor --check
+```
+
+`--check` reports the configured checks. It does not repair files, create Git
+commits, accept administrator changes, or send alerts. The Valkey connectivity
+check briefly writes and removes a test key.
+
+Example output only:
+
+```text
+PASS example.com db_connect
+PASS example.com http_home
+FAIL example.com git_status: 1 changed/untracked
+SKIP example.com valkey: redis: false
+```
+
+| Result | Meaning | Next action |
+| --- | --- | --- |
+| `PASS` | This check passed | Continue reading the report |
+| `FAIL` | A check failed or could not verify its target | Read the detail and `HINT`; investigate before accepting changes |
+| `SKIP` | The check was not performed | Read the reason; this is not a successful verification |
+
+| Site check | What it checks |
+| --- | --- |
+| `db_connect` | Database query through the site's PHP runtime user |
+| `http_home` | Local HTTPS home-page response |
+| `fpm_pool` | PHP-FPM service, socket, and an uncached HTTP response |
+| `cert_expiry` | Served certificate, configured certificate, and expiry threshold |
+| `valkey` | Site credentials and socket access; test-key write, read, and deletion |
+| `core_checksums` | Core checksums and unexpected files under the configured rules |
+| `plugin_checksums` | Plugin integrity under the site's code policy |
+| `stray_php` | Unexpected PHP-like files in selected locations and `.user.ini` files |
+| `php_in_writable` | PHP-like files in configured writable content directories |
+| `git_status` | Changed or untracked site files |
+| `admin_users` | Current administrators against the saved baseline |
+| `content_spike` | New content against the configured time and count limits |
+
+Enabled checks and thresholds come from `/etc/wp-monitor.conf`. Host checks
+run when no domain is supplied. `PASS valkey` proves backend access; it does
+not prove that WordPress has an active persistent object-cache drop-in.
+Local HTTP checks do not verify the public Cloudflare or parent-proxy route.
+
+Exit code `0` means no reported check failed; review any `SKIP` lines. Code `1`
+means a check failed. Code `2` indicates a usage error or unknown site. Capture
+`echo $?` immediately after the command, before running another command.
+
+For details, enter `jump-in example.com` and use `site-check plugins` or Git.
+Use root `wp-monitor --files example.com` for the extra/stray PHP file report.
+Use `wp-monitor --ack example.com` only after reviewing intentional
+administrator changes. It does not accept code or Git changes.
