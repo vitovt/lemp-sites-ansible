@@ -38,6 +38,8 @@ class CLITests(unittest.TestCase):
             self.assertEqual(site['php_version'], '10.0')
             self.assertEqual(site['cloudflare_token_ref'], 'customer_b')
             self.assertTrue(site['wp_install'])
+            self.assertEqual(site['aliases'], ['www.example.com'])
+            self.assertNotIn('# cloudflare_token_ref:', path.read_text())
 
     def test_add_saves_and_previews_before_confirmation(self):
         for config, flags, expected in [
@@ -69,8 +71,33 @@ class CLITests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn('example.com', yaml.safe_load((server / 'sites.yml').read_text())['wp_sites'])
                 self.assertFalse(marker.exists())
+                saved = (server / 'sites.yml').read_text()
+                site = yaml.safe_load(saved)['wp_sites']['example.com']
+                self.assertEqual(site['aliases'], ['www.example.com'])
+                if not flags:
+                    self.assertNotIn('cloudflare_token_ref', site)
+                    self.assertIn('    # cloudflare_token_ref: cloudflare_example', saved)
+                    self.assertIn('# cloudflare_token_ref: cloudflare_example', result.stdout)
                 self.assertLess(result.stdout.index('php_version:'), result.stdout.index('Deploy '))
                 self.assertLess(result.stdout.index(expected), result.stdout.index('Deploy '))
+
+    def test_add_rejects_an_existing_www_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            server = Path(directory) / 'test'
+            server.mkdir()
+            (server / 'settings.yml').write_text(
+                'all:\n  children:\n    wp:\n      hosts:\n        test:\n'
+                '          secrets_dir: "{{ inventory_dir }}/secrets"\n')
+            path = server / 'sites.yml'
+            original = 'wp_sites:\n  www.example.com:\n    user: other\n    php_version: "8.4"\n'
+            path.write_text(original)
+            result = subprocess.run([str(ROOT / 'scripts/site'), 'add', 'test',
+                                     'example.com', 'example', '8.4', '--dry-run'],
+                env={**os.environ, 'LEMP_INVENTORIES_ROOT': directory},
+                capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Default www alias already exists', result.stderr)
+            self.assertEqual(path.read_text(), original)
 
     def test_clone_can_select_a_named_token_for_new_target(self):
         with tempfile.TemporaryDirectory() as directory:

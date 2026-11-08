@@ -258,6 +258,11 @@ If you override `wp_monitor_checks`, add `permissions` to that list.
 
 ### Review a new site before deployment
 
+`scripts/site add` adds `www.DOMAIN` to `aliases`. Without an explicit token
+reference, it adds `# cloudflare_token_ref: cloudflare_USER` as a comment.
+The server default token remains active until you enable that setting.
+Create the matching private token file before you enable it.
+
 `scripts/site add` saves the new entry in `sites.yml` first. It prints the entry,
 certificate method, and Cloudflare token file path when DNS-01 is selected.
 It does not print the token value. Answer `y` to deploy. Answer `n` to keep the

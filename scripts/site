@@ -10,6 +10,7 @@ import tempfile
 
 import yaml
 from ruamel.yaml import YAML as RoundTripYAML
+from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import YAMLError as RoundTripError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -149,11 +150,22 @@ def main():
             parser.error('add requires <user> <php-version>')
         if target not in sites:
             validate(target, user, php, sites)
-            sites[target] = dict(user=user, db_name=user, php_version=php, wp_install=args.install_wp if args.command == 'add' else False,
+            sites[target] = CommentedMap(user=user, db_name=user, php_version=php, wp_install=args.install_wp if args.command == 'add' else False,
                                  staging=args.command == 'clone' and not args.activate)
+            if args.command == 'add':
+                alias = 'www.' + target
+                if any(alias == domain or alias in (cfg or {}).get('aliases', [])
+                       for domain, cfg in sites.items() if domain != target):
+                    raise ValueError('Default www alias already exists: ' + alias)
+                sites[target]['aliases'] = [alias]
+                if not args.cloudflare_token_ref:
+                    sites[target].yaml_set_comment_before_after_key(
+                        'aliases', before=f'cloudflare_token_ref: cloudflare_{user}', indent=4)
             if args.cloudflare_token_ref:
                 sites[target]['cloudflare_token_ref'] = args.cloudflare_token_ref
             print(yaml.safe_dump(plain({target: sites[target]}), sort_keys=False), end='')
+            if args.command == 'add' and not args.cloudflare_token_ref:
+                print(f'  # cloudflare_token_ref: cloudflare_{user}')
             if not args.dry_run:
                 write(path, data)
                 if args.command == 'add':
