@@ -4,6 +4,11 @@
     name: "{{ nginx_packages }}"
     state: present
 
+- name: Ensure the shared self-signed TLS certificate exists
+  ansible.builtin.command:
+    argv: [make-ssl-cert, generate-default-snakeoil]
+    creates: /etc/ssl/private/ssl-cert-snakeoil.key
+
 - name: Create the private health socket directory
   ansible.builtin.file:
     path: /run/wp-hosting

@@ -215,6 +215,11 @@ For another Cloudflare account, add a private token file at
 - [ ] Run `scripts/lemp my-server verify` after each change.
 - [ ] After a token change, run `certbot renew --dry-run` on the server.
 
+New sites start with shared self-signed TLS. ACME failure prints a warning and
+deployment continues. Fix the certificate setup, then repeat
+`scripts/lemp SERVER site DOMAIN`. Success switches Nginx to the new certificate.
+Self-signed TLS is not publicly trusted.
+
 The default certificate method is `dns-cloudflare`. For HTTP-01, set
 `certbot_cloudflare_method: webroot`. Make port 80 and
 `/.well-known/acme-challenge/` reach the guest Nginx. See

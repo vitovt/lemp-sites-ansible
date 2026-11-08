@@ -107,9 +107,11 @@ all:
           # Exception: HTTP-01, when public port 80 reaches the Nginx challenge
           # path on this guest. It does not need a Cloudflare token.
           # certbot_cloudflare_method: webroot
-          # Default: true. Disable certificate management only in a disposable
-          # test; require_valid must then also be false.
+          # Default: true. Keep enabled for public TLS. Disable only for tests
+          # or when another system manages certificates. New sites keep self-signed TLS.
           # certbot_cloudflare_enabled: true
+          # Validate the issued certificate before switching Nginx. ACME failures
+          # leave shared self-signed TLS and do not stop the full site playbook.
           certbot_cloudflare_require_valid: true
           # Default: empty. Set a real operations mailbox for CA notices.
           # certbot_cloudflare_email: ""

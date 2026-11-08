@@ -159,6 +159,7 @@ def main():
                 if args.command == 'add':
                     config = hosts[args.host]
                     print(f'Configuration saved: {path}')
+                    print('Initial TLS: shared server self-signed certificate. ACME failure will not stop deployment.')
                     if not config.get('certbot_cloudflare_enabled', True):
                         print('Certificate: ACME disabled. No Cloudflare API token will be used.')
                     elif config.get('certbot_cloudflare_method', 'dns-cloudflare') == 'webroot':

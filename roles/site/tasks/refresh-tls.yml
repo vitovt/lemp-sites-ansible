@@ -1,0 +1,7 @@
+---
+# Reuse the route transaction. Do not repeat installation or change site content.
+- name: Build the site configuration
+  ansible.builtin.import_tasks: config.yml
+
+- name: Apply the verified certificate through the route transaction
+  ansible.builtin.import_tasks: switch-php.yml

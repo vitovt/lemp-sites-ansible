@@ -167,11 +167,26 @@ certbot_cloudflare_method: webroot
 No DNS API token is used. Public DNS must point to the reachable Nginx endpoint.
 Port 80 must reach the guest challenge location. A LAN proxy must forward
 `/.well-known/acme-challenge/` to the guest. The shared webroot is
-`/var/lib/letsencrypt`. A temporary HTTP vhost supports first issuance.
-Other HTTP paths redirect to HTTPS after site setup.
+`/var/lib/letsencrypt`. The site HTTP vhost serves the challenge before public
+TLS is ready. Other HTTP paths redirect to HTTPS.
 
-Certificate errors stop deployment. `certbot_cloudflare_require_valid: true` is
-the default. Disable the certificate requirement only in an isolated test.
+New sites start with the shared server self-signed certificate. Ansible then
+tries the selected ACME method. ACME errors do not stop deployment. Each failed
+site produces a warning. Other sites still get their own attempt.
+
+Fix the token, DNS, or network problem. Run the full site playbook again:
+
+```sh
+scripts/lemp SERVER site DOMAIN
+```
+
+A successful attempt replaces self-signed TLS in Nginx during that run.
+An existing certificate stays configured if an attempt fails.
+`certbot_cloudflare_require_valid: true` verifies the issued certificate before
+switching. Keep this default. A self-signed site can produce browser, proxy,
+Cloudflare Full (strict), and monitor certificate errors. Deployment success
+does not mean that public TLS is ready. `site-apply` does not request certificates;
+use the full site command while certificate setup is incomplete.
 The Debian certbot timer renews certificates and reloads Nginx after validation.
 Use Cloudflare Full (strict) for the origin connection.
 

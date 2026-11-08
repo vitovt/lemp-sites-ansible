@@ -546,3 +546,21 @@ workspace must stay outside Git. The fresh-branch result is in
 
 Not tested: real Cloudflare API calls, public ACME issuance, production data,
 or server 125. This run did not repeat the full backup/restore lifecycle suite.
+
+## Shared self-signed TLS and ACME retry: 2026-11-08
+
+- Controller: 258 tests passed. Playbook, Python, and shell syntax passed.
+- Local ACME tests: missing or insecure tokens, failure isolation between sites,
+  retry, and bootstrap ordering passed.
+- Full playbook on VM 241: `changed=0`, `unreachable=0`, `failed=0`.
+- Disposable VM 241: the TLS fixture completed with `failed=0`, `rescued=1`.
+  The rescue was the intentional Certbot failure. The vhost stayed unchanged.
+- Retry switched the running Nginx site to the fixture certificate. A real HTTPS
+  request trusted that certificate and passed hostname validation.
+- Another attempt made no additional certificate request. Cleanup restored the
+  shared self-signed certificate and removed private fixture data.
+
+The fixture uses a local fake Certbot and a short-lived self-signed certificate.
+It disables public-chain verification for that fixture only. Real Cloudflare,
+Let's Encrypt issuance, public CA trust, and renewal were not tested. Server 125
+was not accessed. Logs: `/tmp/lemp-tls-241.log` on the controller.

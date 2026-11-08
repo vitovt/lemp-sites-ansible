@@ -34,29 +34,56 @@ class ACMETests(unittest.TestCase):
         self.assertNotEqual(invalid.returncode, 0)
         self.assertIn('cloudflare_token_ref must be a simple name', invalid.stdout)
 
-    def test_missing_site_token_stops_preflight(self):
-        tasks = yaml.safe_load((ROOT / 'roles/preflight/tasks/secrets.yml').read_text())[:4]
+    def test_selected_token_is_checked_inside_recoverable_acme_attempt(self):
+        source = yaml.safe_load((ROOT / 'roles/certbot_cloudflare/tasks/certs.yml').read_text())
+        tasks = [task for task in source if task['name'] in
+                 ('Check the selected DNS token on the controller', 'Require a private selected DNS token')]
         with tempfile.TemporaryDirectory() as directory:
-            secrets = Path(directory)
-            (secrets / 'cloudflare').mkdir()
-            (secrets / 'cloudflare.ini').write_text('dns_cloudflare_api_token = test-default\n')
-            (secrets / 'cloudflare.ini').chmod(0o600)
-            named = secrets / 'cloudflare/customer_b.ini'
-            named.write_text('dns_cloudflare_api_token = test-other\n')
-            named.chmod(0o600)
-            variables = dict(secrets_dir=directory, certbot_cloudflare_enabled=True,
-                             certbot_cloudflare_method='dns-cloudflare', wp_sites={
-                                 'first.example': {}, 'second.example': {'cloudflare_token_ref': 'customer_b'}})
-            valid = self.run_ansible_tasks(tasks, variables)
-            self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
-            named.chmod(0o644)
-            insecure = self.run_ansible_tasks(tasks, variables)
-            self.assertNotEqual(insecure.returncode, 0)
-            self.assertIn('Missing or insecure Cloudflare token for second.example', insecure.stdout)
-            named.unlink()
-            missing = self.run_ansible_tasks(tasks, variables)
-            self.assertNotEqual(missing.returncode, 0)
-            self.assertIn('Missing or insecure Cloudflare token for second.example', missing.stdout)
+            path = Path(directory) / 'cloudflare/customer_b.ini'
+            path.parent.mkdir()
+            path.write_text('dns_cloudflare_api_token = dummy\n')
+            variables = dict(secrets_dir=directory, certbot_cloudflare_method='dns-cloudflare',
+                             certbot_cloudflare_certs=[{'token_ref': 'customer_b'}])
+            for mode, valid in [(0o600, True), (0o644, False)]:
+                path.chmod(mode)
+                result = self.run_ansible_tasks(tasks, variables)
+                self.assertEqual(result.returncode == 0, valid, result.stdout + result.stderr)
+            path.unlink()
+            self.assertNotEqual(self.run_ansible_tasks(tasks, variables).returncode, 0)
+
+    def test_acme_failure_continues_other_sites_and_can_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            refreshed = root / 'refreshed'
+            tasks = yaml.safe_load((ROOT / 'roles/certbot_cloudflare/tasks/attempt.yml').read_text())
+            tasks[1]['block'][1] = {'ansible.builtin.command': {
+                'argv': [sys.executable, '-c', 'import sys;sys.exit(int(sys.argv[1]))',
+                         "{{ 1 if certificate_site.key == 'bad.example' and fail_first else 0 }}"]}}
+            tasks[-1].pop('ansible.builtin.include_role')
+            tasks[-1]['ansible.builtin.lineinfile'] = {
+                'path': str(refreshed), 'create': True, 'line': '{{ certificate_site.key }}'}
+            attempt = root / 'attempt.yml'
+            attempt.write_text(yaml.safe_dump(tasks, sort_keys=False))
+            actions = [{'ansible.builtin.include_tasks': str(attempt),
+                        'loop': [{'key': 'bad.example'}, {'key': 'good.example'}],
+                        'loop_control': {'loop_var': 'certificate_site'}}]
+            result = self.run_ansible_tasks(actions, {'fail_first': True, 'certbot_cloudflare_method': 'webroot'})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('WARNING:', result.stdout)
+            self.assertEqual(refreshed.read_text().splitlines(), ['good.example'])
+            retry = self.run_ansible_tasks(actions, {'fail_first': False, 'certbot_cloudflare_method': 'webroot'})
+            self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+            self.assertEqual(set(refreshed.read_text().splitlines()), {'bad.example', 'good.example'})
+            refreshed.unlink()
+            invalid = self.run_ansible_tasks(actions, {'fail_first': False,
+                                                       'certbot_cloudflare_method': 'invalid'})
+            self.assertEqual(invalid.returncode, 0, invalid.stdout + invalid.stderr)
+            self.assertFalse(refreshed.exists())
+
+    def test_sites_bootstrap_before_acme(self):
+        play = yaml.safe_load((ROOT / 'playbooks/site.yml').read_text())[0]
+        roles = [item['role'] for item in play['roles']]
+        self.assertLess(roles.index('site'), roles.index('certbot_cloudflare'))
 
     def test_default_and_site_credentials_are_selected_per_certificate(self):
         tasks = yaml.safe_load((ROOT / 'roles/certbot_cloudflare/tasks/certs.yml').read_text())

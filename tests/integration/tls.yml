@@ -1,0 +1,134 @@
+---
+# Run only against an existing run-integration.py fixture.
+- name: Test nonfatal ACME bootstrap and retry
+  hosts: wp
+  become: true
+  vars:
+    tls_fixture: "/tmp/wp-hosting-tls-{{ hosting_test_id }}"
+  pre_tasks:
+    - ansible.builtin.import_tasks: ../../playbooks/tasks/test-guard.yml
+    - ansible.builtin.assert:
+        that:
+          - hosting_test_mode | bool
+          - inventory_hostname == 'wptest'
+    - ansible.builtin.import_tasks: ../../playbooks/tasks/load-sites.yml
+    - ansible.builtin.import_role:
+        name: nginx
+        tasks_from: site-apply-prereqs
+    - ansible.builtin.import_role:
+        name: php
+        tasks_from: site-apply-prereqs
+  tasks:
+    - name: Use only the disposable test site
+      ansible.builtin.assert:
+        that: "'test1.example' in wp_sites"
+    - name: Create a private fake ACME directory
+      ansible.builtin.file:
+        path: "{{ tls_fixture }}/bin"
+        state: directory
+        mode: '0700'
+    - name: Create the test certificate
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - req
+          - -x509
+          - -newkey
+          - rsa:2048
+          - -nodes
+          - -days
+          - '2'
+          - -subj
+          - /CN=test1.example
+          - -addext
+          - subjectAltName=DNS:test1.example
+          - -keyout
+          - "{{ tls_fixture }}/key.pem"
+          - -out
+          - "{{ tls_fixture }}/cert.pem"
+    - name: Install the deterministic Certbot fixture
+      ansible.builtin.copy:
+        dest: "{{ tls_fixture }}/bin/certbot"
+        mode: '0700'
+        content: |
+          #!/usr/bin/python3
+          from pathlib import Path
+          import shutil, sys
+          root = Path(__file__).resolve().parent.parent
+          assert sys.argv[sys.argv.index('--cert-name') + 1] == 'test1.example'
+          with (root / 'calls').open('a') as log:
+              log.write('request\n')
+          if (root / 'fail').exists():
+              sys.exit('Intentional ACME failure')
+          target = Path('/etc/letsencrypt/live/test1.example')
+          target.mkdir(parents=True, exist_ok=True)
+          for source, name in [('cert.pem', 'cert.pem'), ('cert.pem', 'fullchain.pem'),
+                               ('key.pem', 'privkey.pem')]:
+              shutil.copyfile(root / source, target / name)
+              (target / name).chmod(0o600)
+    - name: Test failure and successful retry
+      environment:
+        PATH: "{{ tls_fixture }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      block:
+        - name: Confirm the site starts on the shared self-signed certificate
+          ansible.builtin.slurp:
+            src: /etc/nginx/sites-available/test1.example.conf
+          register: before_tls
+        - ansible.builtin.assert:
+            that: "'ssl-cert-snakeoil.pem' in (before_tls.content | b64decode)"
+        - ansible.builtin.copy:
+            dest: "{{ tls_fixture }}/fail"
+            content: fail
+            mode: '0600'
+        - name: Run the failing ACME attempt
+          ansible.builtin.include_role:
+            name: certbot_cloudflare
+          vars: &acme_test
+            certbot_cloudflare_enabled: true
+            certbot_cloudflare_method: webroot
+            # Fixture cert is self-signed. Public CA trust is not tested here.
+            certbot_cloudflare_require_valid: false
+            wp_site_only: test1.example
+        - name: Confirm the play continued and fallback is unchanged
+          ansible.builtin.slurp:
+            src: /etc/nginx/sites-available/test1.example.conf
+          register: after_failure
+        - ansible.builtin.assert:
+            that: after_failure.content == before_tls.content
+        - ansible.builtin.file:
+            path: "{{ tls_fixture }}/fail"
+            state: absent
+        - name: Retry ACME after the fixture error is fixed
+          ansible.builtin.include_role:
+            name: certbot_cloudflare
+          vars: *acme_test
+        - name: Verify Nginx serves the new certificate
+          ansible.builtin.command:
+            argv: [curl, --noproxy, '*', --cacert, '{{ tls_fixture }}/cert.pem',
+                   --resolve, 'test1.example:443:127.0.0.1', -f, --max-time, '20',
+                   -o, /dev/null, 'https://test1.example/wp-login.php']
+          changed_when: false
+        - name: Repeat ACME without another request
+          ansible.builtin.include_role:
+            name: certbot_cloudflare
+          vars: *acme_test
+        - ansible.builtin.slurp:
+            src: "{{ tls_fixture }}/calls"
+          register: acme_calls
+        - ansible.builtin.assert:
+            that: "(acme_calls.content | b64decode).splitlines() | length == 2"
+      always:
+        - name: Remove only the fixture certificate
+          ansible.builtin.file:
+            path: /etc/letsencrypt/live/test1.example
+            state: absent
+        - name: Restore the fixture site to shared self-signed TLS
+          ansible.builtin.include_role:
+            name: site
+            tasks_from: refresh-tls
+          vars:
+            site_item: "{{ {'key': 'test1.example', 'value': wp_sites['test1.example']} }}"
+        - name: Remove private test data
+          ansible.builtin.file:
+            path: "{{ tls_fixture }}"
+            state: absent

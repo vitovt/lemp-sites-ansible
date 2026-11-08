@@ -1,7 +1,8 @@
 ---
 # Let's Encrypt via DNS-01 (Cloudflare API), one certificate per site:
-# cert name = domain, names = domain + aliases. Runs before the site role;
-# the vhost uses /etc/letsencrypt/live/<domain>/ when it exists, else snakeoil.
+# cert name = domain, names = domain + aliases. Runs after the site role;
+# Sites start with server self-signed TLS. ACME failures are reported and retried
+# on the next full run. Successful validation switches the site to public TLS.
 # false = skip the whole role (local tests, hosts without Cloudflare).
 certbot_cloudflare_enabled: true
 certbot_cloudflare_packages:

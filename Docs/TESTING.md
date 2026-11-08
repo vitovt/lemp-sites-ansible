@@ -157,3 +157,18 @@ policy authorization, completion, help, exit/EOF/signals, and repeat installatio
 The second PHP branch is a generated test executable; it tests branch selection, not a second PHP release.
 Checksum policy parsing and owner execution are covered by unit tests. The PTY suite does not install
 or activate a WordPress application or contact WordPress.org during checks.
+
+## Self-signed bootstrap and ACME retry
+
+Use an existing disposable `run-integration.py` fixture. From its private
+`project/` directory, use its isolated Ansible environment and run:
+
+```sh
+ansible-playbook -i inventories/wptest/settings.yml tests/integration/tls.yml
+```
+
+The test requires the target marker and `test1.example`. It uses a private fake
+Certbot. It tests failure, continued deployment, retry, the served certificate,
+and no duplicate issuance. It restores shared self-signed TLS and removes its
+private files. It does not access Cloudflare or Let's Encrypt. Public CA trust
+is outside this fixture; the fixture disables public-chain validation.

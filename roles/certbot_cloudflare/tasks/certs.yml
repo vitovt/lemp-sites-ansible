@@ -20,6 +20,24 @@
       {%- endfor -%}
       {{ out }}
 
+- name: Check the selected DNS token on the controller
+  ansible.builtin.stat:
+    path: >-
+      {{ (secrets_dir ~ '/cloudflare/' ~ certbot_cloudflare_certs[0].token_ref ~ '.ini')
+         if certbot_cloudflare_certs[0].token_ref else certbot_cloudflare_credentials_src }}
+  delegate_to: localhost
+  become: false
+  register: certificate_token_file
+  when: certbot_cloudflare_method == 'dns-cloudflare'
+
+- name: Require a private selected DNS token
+  ansible.builtin.assert:
+    that:
+      - certificate_token_file.stat.isreg | default(false)
+      - certificate_token_file.stat.mode | default('') in ['0400', '0600']
+    fail_msg: "The selected Cloudflare token is missing or insecure. Create its file and use chmod 600."
+  when: certbot_cloudflare_method == 'dns-cloudflare'
+
 - name: Install DNS credentials
   ansible.builtin.copy:
     src: "{{ certbot_cloudflare_credentials_src }}"
@@ -27,7 +45,7 @@
     owner: root
     group: root
     mode: "0600"
-  when: certbot_cloudflare_method == 'dns-cloudflare'
+  when: certbot_cloudflare_method == 'dns-cloudflare' and not certbot_cloudflare_certs[0].token_ref
   no_log: true
 
 - name: Create the site credential directory

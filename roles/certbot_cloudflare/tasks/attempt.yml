@@ -1,0 +1,37 @@
+---
+- name: Reset this certificate attempt
+  ansible.builtin.set_fact:
+    certificate_attempt_succeeded: false
+
+- name: Try the requested certificate
+  block:
+    - name: Check the certificate policy
+      ansible.builtin.assert:
+        that:
+          - certbot_cloudflare_method in ['dns-cloudflare', 'webroot']
+        fail_msg: "Use dns-cloudflare or webroot for certificate requests."
+    - name: Issue and verify this site certificate
+      ansible.builtin.include_tasks: certs.yml
+      vars:
+        wp_site_only: "{{ certificate_site.key }}"
+    - name: Record successful certificate validation
+      ansible.builtin.set_fact:
+        certificate_attempt_succeeded: true
+  rescue:
+    - name: Report certificate failure without stopping deployment
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Let's Encrypt setup failed for {{ certificate_site.key }}.
+          The site's current TLS configuration is unchanged; a new site keeps
+          the server self-signed certificate. Fix the ACME method, DNS, network,
+          or token file and rerun scripts/lemp {{ inventory_hostname }} site
+          {{ certificate_site.key }}. Review /var/log/letsencrypt/letsencrypt.log
+          if Certbot ran. Self-signed TLS is not publicly trusted.
+
+- name: Apply the verified certificate to this site
+  ansible.builtin.include_role:
+    name: site
+    tasks_from: refresh-tls
+  vars:
+    site_item: "{{ certificate_site }}"
+  when: certificate_attempt_succeeded | bool

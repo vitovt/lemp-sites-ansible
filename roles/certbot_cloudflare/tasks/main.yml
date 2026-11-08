@@ -1,11 +1,10 @@
 ---
-- name: Check the certificate policy
-  ansible.builtin.assert:
-    that:
-      - certbot_cloudflare_method in ['dns-cloudflare', 'webroot']
-      - certbot_cloudflare_enabled | bool or not certbot_cloudflare_require_valid | bool
-    fail_msg: "Production requires certificate management. Disable the requirement only in isolated tests."
-
-- name: Issue and check certificates
-  ansible.builtin.include_tasks: certs.yml
-  when: certbot_cloudflare_enabled | bool
+- name: Try certificates independently after site bootstrap
+  ansible.builtin.include_tasks: attempt.yml
+  loop: "{{ wp_sites | default({}) | dict2items }}"
+  loop_control:
+    loop_var: certificate_site
+    label: "{{ certificate_site.key }}"
+  when:
+    - certbot_cloudflare_enabled | bool
+    - not (wp_site_only | default('')) or wp_site_only == certificate_site.key
