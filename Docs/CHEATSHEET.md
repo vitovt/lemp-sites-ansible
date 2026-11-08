@@ -475,3 +475,124 @@ For details, enter `jump-in example.com` and use `site-check plugins` or Git.
 Use root `wp-monitor --files example.com` for the extra/stray PHP file report.
 Use `wp-monitor --ack example.com` only after reviewing intentional
 administrator changes. It does not accept code or Git changes.
+
+## 15. Enable Redis Object Cache (Valkey)
+
+Valkey is the server backend. Redis Object Cache is the WordPress plugin.
+This is an object cache. It can work with the WP Rocket page cache.
+
+### Check the environment
+
+- [ ] The site inventory has `redis: true` (the default).
+- [ ] Ansible has configured the site's Valkey account and socket access.
+- [ ] `wp-config.php` has the site's `WP_REDIS_*` settings and ACL credentials.
+  New installations get these settings from Ansible. Ansible does not overwrite
+  an existing `wp-config.php`. Changing inventory alone does not add them there.
+- [ ] Do not copy another site's password or key prefix. Do not publish credentials.
+- [ ] Review existing Git changes. Do not include unrelated changes in this commit.
+
+On the server, as root:
+
+```sh
+jump-in example.com
+```
+
+Run the following commands inside this site shell. `php` uses the site's PHP
+version. The normal `wp` wrapper skips plugins and themes. For plugin-provided
+`redis` commands, call WP-CLI through `php` and omit `--skip-plugins`.
+This loads active plugins; run it only after reviewing the site code.
+
+```sh
+git status --short
+wp plugin list --fields=name,status,version
+ls -ld wp-content
+```
+
+### Install the plugin and drop-in
+
+- [ ] Install the plugin. If already installed, activate it without reinstalling.
+
+```sh
+wp plugin install redis-cache --activate
+# Already installed instead:
+# wp plugin activate redis-cache
+```
+
+- [ ] Inspect the current status. An absent drop-in reports `Not enabled`.
+
+```sh
+php /usr/local/bin/wp --path="$PWD" --skip-themes redis status
+```
+
+`Filesystem: File modifications are not allowed` is expected. Keep
+`DISALLOW_FILE_MODS` enabled. Do not edit the plugin source to bypass it.
+Install the plugin's supplied drop-in as the code owner:
+
+```sh
+if [ -e wp-content/object-cache.php ] || [ -L wp-content/object-cache.php ]; then
+    echo 'STOP: object-cache.php exists. Review it before replacement.'
+else
+    install -m 0640 \
+      wp-content/plugins/redis-cache/includes/object-cache.php \
+      wp-content/object-cache.php
+fi
+```
+
+- [ ] If `STOP` appears, inspect the existing file. Do not overwrite another
+  cache provider's drop-in. This branch does not install or enable anything.
+- [ ] Confirm that the file is not empty and matches the plugin's supplied file.
+
+```sh
+test -s wp-content/object-cache.php && \
+  cmp wp-content/plugins/redis-cache/includes/object-cache.php \
+      wp-content/object-cache.php
+php /usr/local/bin/wp --path="$PWD" --skip-themes redis status
+```
+
+Expected: `Status: Connected`, `Drop-in: Valid`, `Ping: 1`, and `Errors: []`.
+Keep `WP_REDIS_SELECTIVE_FLUSH` enabled for this shared Valkey instance.
+Do not run `redis-cli FLUSHALL` or `FLUSHDB`.
+
+### Test persistence and commit
+
+- [ ] Write and read a temporary key through separate WP-CLI processes.
+
+```sh
+CHECK_KEY="lemp-check-$(date +%s)-$$"
+wp cache set "$CHECK_KEY" valkey-ok lemp-check 60
+wp cache get "$CHECK_KEY" lemp-check
+wp cache delete "$CHECK_KEY" lemp-check
+unset CHECK_KEY
+```
+
+The read must print `valkey-ok`. The delete must succeed. A further read after
+that delete returns `not found` and exit code `1`. This is expected; the wrapper
+can also print a generic failure hint. It does not mean that Valkey failed.
+
+- [ ] Review and commit only the plugin and drop-in. Do not use `git add .`.
+
+```sh
+git add -- wp-content/plugins/redis-cache wp-content/object-cache.php
+git diff --cached --stat
+git diff --cached
+# Confirm that no unrelated paths were already staged. Then commit:
+git commit -m "Enable Redis Object Cache"
+exit
+```
+
+- [ ] As root, check permissions and runtime connectivity:
+
+```sh
+site-fix-perms example.com --check
+wp-monitor --check example.com
+```
+
+The owner-side test does not prove that PHP-FPM can access Valkey. Review the
+monitor's Valkey result and open the site. Investigate failures before repair.
+
+After a Redis Object Cache plugin update, review whether its supplied
+`includes/object-cache.php` differs from the installed drop-in. Update the
+drop-in deliberately, repeat these checks, and commit the reviewed change.
+Do not assume that a plugin update replaced the drop-in.
+
+Reference: [Redis Object Cache CLI implementation](https://github.com/rhubarbgroup/redis-cache/blob/develop/includes/cli/class-commands.php).
