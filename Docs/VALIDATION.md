@@ -511,3 +511,38 @@ tools and sites on VM 241 were not replaced. Server 125 was not accessed.
   execution of the suggested manual repairs were not tested.
 - Native PHP/WP-CLI error text comes from the child tool. Wrapper hints add
   general checks; they do not diagnose every third-party plugin failure.
+
+
+## Site preview and PHP handlers: 2026-11-08
+
+Target: disposable Debian 13 QEMU VM 241. The runner used generated credentials
+and temporary test sites. No server 125 connection was made.
+
+- Controller: 256 unit tests passed. Playbook, Python, and shell syntax passed.
+- Initial deployment: `failed=0`. Repeat: `changed=0`, `failed=0`.
+- Site apply: repeat convergence passed. Other-site resources stayed unchanged.
+- Missing PHP branch and invalid FPM configuration were rejected. The active
+  pool, Nginx configuration, and site facts stayed unchanged.
+- PHP transitions: 8.4 to 8.3, back to 8.4, then 8.5 and back to 8.4 passed.
+  All 217 sampled uncached HTTP requests passed during the 8.4 to 8.3 switch.
+- Full convergence after the transitions: `changed=0`, `failed=0`.
+- Intentional interruption with an empty 8.5 pool directory: only the intended
+  failure occurred. Active 8.4 validated and reloaded. Both sites stayed available.
+- Fresh branch: PHP 8.2 was absent before the test. The actual PHP role installed
+  its packages, removed the default pool, and encountered an intentional failure
+  before site-pool creation. Handlers skipped 8.2 and validated and reloaded 8.4.
+  Both site login pages returned successful HTTP responses after the test.
+- Doctor passed with `changed=0`, `failed=0` before and after the fresh-branch test.
+
+Initial setup stopped on legacy regular command files at `/usr/local/sbin/`.
+They were moved to a private temporary directory on the marked disposable VM.
+The normal tool-delivery role was not changed to overwrite unrelated files.
+The first fresh-branch fixture did not select any versions. It was corrected
+and rerun with site-derived versions before the successful result above.
+
+Logs: `/tmp/lemp-integration-php-handler-241/`. Generated credentials in that
+workspace must stay outside Git. The fresh-branch result is in
+`interrupted-php-fresh.log`; its single failure is intentional.
+
+Not tested: real Cloudflare API calls, public ACME issuance, production data,
+or server 125. This run did not repeat the full backup/restore lifecycle suite.

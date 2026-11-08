@@ -41,6 +41,15 @@ esac
                 ssh.chmod(0o755)
                 playbook = binary / 'ansible-playbook'
                 playbook.write_text('''#!/bin/sh
+case "$*" in
+    *playbooks/interrupted-php.yml*)
+        echo 'intentional certificate interruption'
+        echo 'RUNNING HANDLER [php : Validate active PHP-FPM configurations]'
+        echo 'RUNNING HANDLER [php : Reload active PHP-FPM services]'
+        echo 'skipping: [wptest] => (item=8.2)'
+        echo 'wptest : ok=5 changed=1 unreachable=0 failed=1'
+        exit 2 ;;
+esac
 for arg do
     case "$arg" in
         @*) if grep -q '"99.99"' "${arg#@}"; then

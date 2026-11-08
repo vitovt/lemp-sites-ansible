@@ -278,5 +278,6 @@ Existing pools must still pass `php-fpm -t` before any reload.
 Validation: local handler tests cover an empty branch after an early failure,
 an active pool, and an invalid pool. The existing PHP transaction tests cover
 cutover, rollback, and repeat runs. Service commands are stubbed in local tests.
-Live validation on 241 is pending: its configured SSH endpoint refused three
-connection attempts. No changes were made to server 125.
+Live validation on disposable server 241 passed on 2026-11-08. It covered PHP
+transitions, repeat convergence, and an intentional interruption after a new
+PHP branch was installed. No changes were made to server 125.

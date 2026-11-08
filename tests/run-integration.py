@@ -231,6 +231,37 @@ if a.phase in ('all', 'deploy', 'transitions'):
     play('site', 'php-full-repeat.log')
     if not re.search(r'changed=0\s+unreachable=0\s+failed=0', (work / 'php-full-repeat.log').read_text()):
         raise SystemExit('FAIL full playbook after PHP branch restoration changed resources')
+    # Simulate certificate failure after preparing a new pool-less branch.
+    # Forced handlers must reload active pools without adding a second failure.
+    import yaml
+    interrupted = [{'hosts': 'wp', 'become': True, 'gather_facts': True,
+        'force_handlers': True, 'vars': {'wp_sites': {
+            'test1.example': {'php_version': '8.4'},
+            'pending.example': {'php_version': '8.2'}}},
+        'roles': ['php'],
+        'pre_tasks': [{'ansible.builtin.import_tasks': 'tasks/test-guard.yml'}],
+        'tasks': [
+            {'ansible.builtin.command': {'argv': ['find', '/etc/php/8.2/fpm/pool.d',
+                '-name', '*.conf', '-print']}, 'register': 'empty_pools', 'changed_when': False},
+            {'ansible.builtin.assert': {'that': ["empty_pools.stdout | trim == ''"]}},
+            {'ansible.builtin.debug': {'msg': 'Simulate PHP configuration change'},
+             'changed_when': True, 'notify': 'Reload php-fpm'},
+            {'ansible.builtin.fail': {'msg': 'intentional certificate interruption'}}],
+        }]
+    (project / 'playbooks/interrupted-php.yml').write_text(yaml.safe_dump(interrupted, sort_keys=False))
+    play('interrupted-php', 'interrupted-php.log', expect_failure=True)
+    interrupted_output = (work / 'interrupted-php.log').read_text()
+    if not re.search(r'changed=\d+\s+unreachable=0\s+failed=1\b', interrupted_output):
+        raise SystemExit('FAIL interrupted PHP deployment caused additional handler failures')
+    if 'No pool defined' in interrupted_output or 'intentional certificate interruption' not in interrupted_output:
+        raise SystemExit('FAIL missing expected certificate interruption result')
+    for expected in ['Validate active PHP-FPM configurations', 'Reload active PHP-FPM services',
+                     'skipping: [wptest] => (item=8.2)']:
+        if expected not in interrupted_output:
+            raise SystemExit('FAIL missing PHP handler evidence: ' + expected)
+    for domain in site_list:
+        remote(privileged("curl --noproxy '*' -skf --max-time 20 -o /dev/null "
+                          + shlex.quote('https://' + domain + '/wp-login.php')))
     play('doctor', 'doctor.log')
 if a.phase == 'cutover':
     cutover = dict(site_list)

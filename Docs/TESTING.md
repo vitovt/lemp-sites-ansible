@@ -95,6 +95,9 @@ change. It rejects a missing PHP branch without changing the deployed route.
 It switches a site between installed PHP branches, installs another Sury branch
 through the full playbook, and checks rollback to the original branch. The
 repeated command must report `changed=0`.
+The runner also interrupts deployment before a new branch has a site pool.
+Forced handlers must skip the empty branch, validate and reload active pools,
+and leave both test sites available. Only the intentional failure is allowed.
 
 Repeat convergence must report `changed=0`, `unreachable=0`, and `failed=0`.
 No failed or skipped real-environment test is proof of a working feature.
