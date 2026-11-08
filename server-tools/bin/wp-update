@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Coordinate checked WordPress code updates on a managed hosting server."""
 import argparse
+import hashlib
+import stat
 from datetime import datetime
 import json
 import os
@@ -341,7 +343,7 @@ def inventory(s, scope, release, holds, log=None):
                 'wp-config-sample.php',
                 'wp-cron.php', 'wp-links-opml.php', 'wp-load.php', 'wp-login.php',
                 'wp-mail.php', 'wp-settings.php', 'wp-signup.php', 'wp-trackback.php',
-                'xmlrpc.php', 'license.txt', 'readme.html']))
+                'xmlrpc.php', 'license.txt', 'readme.html', *translation_paths(s, 'core', 'core')]))
     for kind in ('plugin', 'theme'):
         if scope not in ('all', kind + 's') and not scope.startswith(kind + ':'):
             continue
@@ -363,12 +365,80 @@ def inventory(s, scope, release, holds, log=None):
             old, new = item['version'], item['update_version']
             if release == 'minor' and old.split('.')[0] != new.split('.')[0]:
                 continue
-            result.append((kind, name, old, new, [f'wp-content/{kind}s/{name}']))
+            result.append((kind, name, old, new, [f'wp-content/{kind}s/{name}', *translation_paths(s, kind, name)]))
     return result
 
 
 def changed(s):
     return {x for x in git(s, 'status', '--porcelain=v1', '-z', '--untracked-files=all').stdout.split('\0') if x}
+
+
+def visible_paths(s):
+    return set(git(s, 'ls-files', '--cached', '--others', '--exclude-standard', '-z').stdout.split('\0')) - {''}
+
+
+def translation_paths(s, kind, name):
+    # Root language packs belong to core. Plugin/theme packs belong only to
+    # their exact slug. Do not allow arbitrary PHP or the whole language tree.
+    locale = r'[a-z]{2,3}(?:_[A-Za-z0-9]+)*(?:@[A-Za-z0-9]+)?'
+    suffix = r'(?:\.mo|\.po|\.l10n\.php|-[a-f0-9]{32}\.json)'
+    if kind == 'core':
+        pattern = r'wp-content/languages/(?:admin-|admin-network-|continents-cities-)?' + locale + suffix
+    else:
+        pattern = 'wp-content/languages/' + kind + 's/' + re.escape(name) + '-' + locale + suffix
+    return sorted(path for path in visible_paths(s) if re.fullmatch(pattern, path))
+
+
+def fingerprint(root, path):
+    parts = Path(path).parts
+    if not parts or Path(path).is_absolute() or any(part in ('.', '..', '.git') for part in parts):
+        raise RuntimeError('Unsafe Git path: ' + repr(path))
+    directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        info = os.stat(parts[-1], dir_fd=directory, follow_symlinks=False)
+        if stat.S_ISLNK(info.st_mode):
+            return ('link', os.readlink(parts[-1], dir_fd=directory))
+        descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        with os.fdopen(descriptor, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise RuntimeError('Cannot safely inspect Git path: ' + repr(path))
+            return ('file', bool(info.st_mode & stat.S_IXUSR), hashlib.file_digest(stream, 'sha256').hexdigest())
+    except FileNotFoundError:
+        return ('missing',)
+    finally:
+        os.close(directory)
+
+
+def file_state(s):
+    """Fingerprint Git-visible bytes, execute bits, links, and index entries.
+
+    Porcelain status alone misses a second edit to an already dirty file.
+    Ignored data remains the monitor's responsibility. Never execute site code.
+    """
+    stages = {}
+    for entry in git(s, 'ls-files', '--stage', '-z').stdout.split('\0'):
+        if entry:
+            metadata, path = entry.split('\t', 1)
+            stages.setdefault(path, []).append(metadata)
+    result = {}
+    for path in visible_paths(s):
+        result[path] = (fingerprint(s['base'] / 'htdocs', path), tuple(stages.get(path, ())))
+    return result
+
+
+def changed_paths(before, after):
+    return sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+
+
+def in_scope(path, paths):
+    return any(path == allowed or (
+        (allowed in ('wp-admin', 'wp-includes') or re.fullmatch(r'wp-content/(?:plugins|themes)/[a-z0-9][a-z0-9_-]*', allowed))
+        and path.startswith(allowed + '/')) for allowed in paths)
 
 
 def target_dirty(s, paths):
@@ -481,7 +551,7 @@ def apply(s, args):
                 lines.append(f'SKIP {kind}:{name}: target has local changes')
                 failed = True
                 continue
-            before = changed(s)
+            before = file_state(s)
             if not args.no_maintenance and not marker.exists():
                 marker.write_text('managed update\n')
                 marker.chmod(0o644)
@@ -509,9 +579,11 @@ def apply(s, args):
                     'https://' + s['domain'] + '/?wp-update-health=1']).stdout
                 if health != '200':
                     raise RuntimeError('Uncached health check failed')
-                outside = changed(s) - before
-                if any(not any(x[3:] == p or x[3:].startswith(p + '/') for p in paths) for x in outside):
-                    raise RuntimeError('Update changed paths outside the selected component')
+                paths = list(dict.fromkeys([*paths, *translation_paths(s, kind, name)]))
+                after = file_state(s)
+                outside = [path for path in changed_paths(before, after) if not in_scope(path, paths)]
+                if outside:
+                    raise RuntimeError('Update changed paths outside the selected component: ' + ', '.join(repr(path) for path in outside))
                 commit = None if dirty else commit_paths(s, paths, f'Update {kind}:{name} {old} to {new}')
                 lines.append(f'PASS {kind}:{name} {old} -> {new} commit={commit or "none"}')
                 completed.append((kind, name, old, new))

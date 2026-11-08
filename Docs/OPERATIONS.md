@@ -223,6 +223,20 @@ cannot skip this check. A dirty target can use `--allow-dirty-target` only
 in manual mode; the update can overwrite local edits and leaves the target
 without an automatic commit. Review files before you use either option.
 
+### Translation files during updates
+
+The updater includes language packs for the selected component. Core uses
+language files directly under `wp-content/languages/`. Plugins and themes use
+only their own slug and locale files under `languages/plugins/` and
+`languages/themes/`. Other components and arbitrary PHP files are not allowed.
+
+A pre-existing change to a selected language pack is a dirty target. Manual
+`--allow-dirty-target` permits the update but prevents its automatic commit.
+Unrelated staged changes remain staged. The updater compares Git-visible file
+contents, execute bits, links, and index entries before and after each update.
+A failure lists the changed paths outside the selected component. Ignored data
+is outside this comparison. No automatic rollback is performed.
+
 ### Git permissions after updates
 
 Updater child commands use `umask 0027` for manual and automatic runs.
