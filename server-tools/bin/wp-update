@@ -195,10 +195,22 @@ def diagnostic(s, reason):
 
 
 class HelpParser(argparse.ArgumentParser):
-    def error(self, message):
+    def error(self, message, *, policy_scope=None, domain=None):
         stream = sys.stderr
         print(terminal_text('ERROR', '31', stream), file=stream)
         print('  ' + message + '\n', file=stream)
+        if policy_scope:
+            print(terminal_text('POLICY OPTIONS', '1;36', stream), file=stream)
+            print('  minor   Core: WordPress minor releases.\n'
+                  '          Plugins/themes: keep the first version number.\n'
+                  '  latest  Latest available releases; allow major-version upgrades.\n', file=stream)
+            print(terminal_text('HINT', '33', stream), file=stream)
+            print('  Select a policy explicitly. No update was started.\n', file=stream)
+            print(terminal_text('EXAMPLES', '1;36', stream), file=stream)
+            for policy in ('minor', 'latest'):
+                print('  ' + shlex.join(['wp-update', 'apply', domain, '--scope', policy_scope,
+                                         '--policy', policy]), file=stream)
+            self.exit(2)
         if 'scope' in message.lower():
             print(terminal_text('VALID VALUES', '1;36', stream), file=stream)
             print('  all\n  core\n  plugins\n  themes\n  plugin:SLUG\n  theme:SLUG\n', file=stream)
@@ -539,7 +551,8 @@ def main(argv):
         if args.scope and args.scope not in ('all', 'core', 'plugins', 'themes') and not re.fullmatch(r'(plugin|theme):[a-z0-9][a-z0-9_-]*', args.scope):
             parser.error('invalid scope')
         if args.action == 'apply' and args.scope in ('all', 'core', 'plugins', 'themes') and not args.policy:
-            parser.error('all/core/plugins/themes require --policy')
+            parser.error(f'Missing --policy for --scope {args.scope}. Choose minor or latest.',
+                         policy_scope=args.scope, domain=args.domain)
         args.scope = args.scope or 'all'
         args.policy = args.policy or 'latest'
     if args.action == 'plan' and (args.skip_backup_check or args.allow_dirty_target or args.no_maintenance):

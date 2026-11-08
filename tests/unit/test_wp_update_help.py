@@ -122,9 +122,17 @@ class BulkScopeTests(unittest.TestCase):
                         self.assertEqual(inventory.call_args.args[1:3], (scope, 'minor'))
 
     def test_bulk_apply_requires_explicit_policy(self):
-        for scope in ('plugins', 'themes'):
+        for scope in ('all', 'core', 'plugins', 'themes'):
             with self.subTest(scope=scope), contextlib.redirect_stderr(io.StringIO()) as output:
                 with self.assertRaises(SystemExit) as caught:
                     updater.main(['apply', 'example.com', '--scope', scope])
                 self.assertEqual(caught.exception.code, 2)
-                self.assertIn('require --policy', output.getvalue())
+                text = output.getvalue()
+                self.assertIn(f'Missing --policy for --scope {scope}', text)
+                self.assertIn('No update was started.', text)
+                self.assertIn('POLICY OPTIONS', text)
+                self.assertIn(f'wp-update apply example.com --scope {scope} --policy minor', text)
+                self.assertIn(f'wp-update apply example.com --scope {scope} --policy latest', text)
+                self.assertNotIn('VALID VALUES', text)
+                if scope != 'core':
+                    self.assertNotIn('--scope core', text)
