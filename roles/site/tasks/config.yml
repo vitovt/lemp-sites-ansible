@@ -1,0 +1,11 @@
+---
+# One site_cfg. site_item = {key: domain, value: wp_sites entry}.
+- name: Build site config ({{ site_item.key }})
+  ansible.builtin.set_fact:
+    site_cfg: >-
+      {{ site_defaults | combine(site_item.value | default({}, true)) | combine({
+           'domain': site_item.key,
+           'user': (site_item.value | default({}, true)).user | default(site_item.key | regex_replace('[.-]', '_')),
+           'db_name': (site_item.value | default({}, true)).db_name | default(site_item.key | regex_replace('[.-]', '_')),
+           'php_version': site_item.value.php_version,
+           'path': site_root ~ '/' ~ site_item.key }) }}
