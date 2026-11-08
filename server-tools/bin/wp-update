@@ -46,6 +46,20 @@ Without these options, apply requires today's completed site backup and a clean
 update target. Unrelated local changes are allowed and are not added to the commit.
 An uncertain failed update keeps its maintenance gate enabled.
 No automatic rollback is performed."""
+CHANGELOG_HELP = """Changelog (plan, apply, and run):
+  --changelog brief    Show up to five releases with short notes. Default.
+  --changelog full     Show all published entries in OLD < release <= NEW.
+  --changelog none     Do not fetch, print, or save release notes.
+
+Plugin notes come from WordPress.org. Missing notes never fail an update.
+Core uses a release-note link. Themes and private plugins may have no notes.
+The author can omit releases. Partial ranges are marked; completeness is not guaranteed.
+After apply/run, save full notes for successful components in the site's logs.
+Plan prints notes only. Release notes are not sent to Telegram or syslog.
+
+Changelog examples:
+  wp-update plan example.com --scope plugins --changelog full
+  wp-update apply example.com --scope plugin:akismet --changelog none"""
 MODE_HELP = {
     'plan': """Usage: wp-update plan SITE [--scope SCOPE] [--policy POLICY]
 
@@ -92,6 +106,7 @@ Run:
 Examples:
   wp-update run --automatic --all-sites""",
 }
+MODE_HELP = {name: text + '\n\n' + CHANGELOG_HELP for name, text in MODE_HELP.items()}
 HELP = SHORT + "\n\n" + "\n\n".join(MODE_HELP.values())
 
 
@@ -386,10 +401,31 @@ def report(s, lines):
         print('WARNING syslog delivery is unavailable; HINT check command -v logger and systemctl status systemd-journald; use the site log or terminal result.', file=sys.stderr, flush=True)
 
 
+def show_changelogs(entries, mode, site=None):
+    """Report after component processing. Never change update status."""
+    if mode == 'none' or not entries:
+        return
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
+        from wp_changelog import render, save_notes
+        display, complete = render(entries, mode)
+        if display:
+            print_help_text('\n' + display)
+        if site and complete:
+            try:
+                path = save_notes(site, complete)
+                print('CHANGELOG FILE ' + str(path))
+            except Exception:
+                print_status('WARNING changelog file could not be saved; check the site logs directory and free space.', sys.stderr)
+    except Exception:
+        print_status('WARNING changelog unavailable; update result is unchanged.', sys.stderr)
+
+
 def apply(s, args):
     lines = [f"START {s['domain']} {datetime.now().astimezone().isoformat()} scope={args.scope} policy={args.policy}"]
     failed = False
     unsafe = False
+    completed = []
     try:
         marker = s['base'] / 'conf/maintenance'
         if marker.exists():
@@ -449,6 +485,7 @@ def apply(s, args):
                     raise RuntimeError('Update changed paths outside the selected component')
                 commit = None if dirty else commit_paths(s, paths, f'Update {kind}:{name} {old} to {new}')
                 lines.append(f'PASS {kind}:{name} {old} -> {new} commit={commit or "none"}')
+                completed.append((kind, name, old, new))
             except Exception as exc:
                 lines.append(f'FAIL {kind}:{name}: {exc}')
                 failed = True
@@ -464,6 +501,7 @@ def apply(s, args):
         failed = True
     lines.append('FAIL' if failed else 'PASS')
     report(s, lines)
+    show_changelogs(completed, getattr(args, 'changelog', 'brief'), s)
     if failed:
         subprocess.run(['/usr/local/sbin/tg-alert', f'wp-update failed: {s["domain"]}; see site log'], check=False)
     return failed
@@ -482,6 +520,7 @@ def main(argv):
     parser.add_argument('domain', nargs='?')
     parser.add_argument('--scope')
     parser.add_argument('--policy', choices=['minor', 'latest'])
+    parser.add_argument('--changelog', choices=['full', 'brief', 'none'], default='brief')
     parser.add_argument('--automatic', action='store_true')
     parser.add_argument('--all-sites', action='store_true')
     parser.add_argument('--skip-backup-check', action='store_true')
@@ -521,8 +560,10 @@ def main(argv):
             if dirty:
                 for hint in error_hints(s, 'Git index or worktree is not clean'):
                     print_status('HINT ' + hint)
-            for item in inventory(s, args.scope, args.policy, policy(s['domain'])):
+            entries = inventory(s, args.scope, args.policy, policy(s['domain']))
+            for item in entries:
                 print('UPDATE', *item[:4])
+            show_changelogs(entries, args.changelog)
             return 0
         except Exception as exc:
             for line in diagnostic({'domain': args.domain, 'base': Path('/srv/sites') / args.domain}, f'FAIL {exc}'):
