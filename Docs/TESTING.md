@@ -12,6 +12,9 @@ python3 tests/probes/cache.py
 python3 tests/probes/real-ip.py
 ```
 
+`tests/check.sh` does not include lint or the Nginx probes. Run all four
+commands above before you push changes.
+
 Controller tests do not connect to a server. The cache probe starts a private
 Nginx process and a mock FastCGI server on temporary localhost ports.
 It needs the local nginx binary and permission to bind local sockets.

@@ -1,7 +1,7 @@
 ---
 - name: Reset this certificate attempt
   ansible.builtin.set_fact:
-    certificate_attempt_succeeded: false
+    certbot_cloudflare_attempt_succeeded: false
 
 - name: Try the requested certificate
   block:
@@ -16,7 +16,7 @@
         wp_site_only: "{{ certificate_site.key }}"
     - name: Record successful certificate validation
       ansible.builtin.set_fact:
-        certificate_attempt_succeeded: true
+        certbot_cloudflare_attempt_succeeded: true
   rescue:
     - name: Report certificate failure without stopping deployment
       ansible.builtin.debug:
@@ -34,4 +34,4 @@
     tasks_from: refresh-tls
   vars:
     site_item: "{{ certificate_site }}"
-  when: certificate_attempt_succeeded | bool
+  when: certbot_cloudflare_attempt_succeeded | bool

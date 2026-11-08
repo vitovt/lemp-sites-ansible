@@ -564,3 +564,13 @@ The fixture uses a local fake Certbot and a short-lived self-signed certificate.
 It disables public-chain verification for that fixture only. Real Cloudflare,
 Let's Encrypt issuance, public CA trust, and renewal were not tested. Server 125
 was not accessed. Logs: `/tmp/lemp-tls-241.log` on the controller.
+
+## GitHub Actions lint repair: 2026-11-08
+
+Run 42519750963 failed only in the controller lint step. The backup-manager and
+site-shell jobs passed. Lint found 18 violations in the TLS role and fixture:
+role variable prefixes, missing task names, and missing command change tracking.
+
+After the repair, `ansible-lint --offline` passed the production profile with
+zero violations. All 259 unit tests and syntax checks passed. Both local Nginx
+probes passed. No servers were accessed. A new GitHub run was not triggered.

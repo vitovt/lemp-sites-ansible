@@ -4,18 +4,24 @@
   hosts: wp
   become: true
   vars:
+    wp_site_only: test1.example
     tls_fixture: "/tmp/wp-hosting-tls-{{ hosting_test_id }}"
   pre_tasks:
-    - ansible.builtin.import_tasks: ../../playbooks/tasks/test-guard.yml
-    - ansible.builtin.assert:
+    - name: Check the disposable target marker
+      ansible.builtin.import_tasks: ../../playbooks/tasks/test-guard.yml
+    - name: Require the isolated integration inventory
+      ansible.builtin.assert:
         that:
           - hosting_test_mode | bool
           - inventory_hostname == 'wptest'
-    - ansible.builtin.import_tasks: ../../playbooks/tasks/load-sites.yml
-    - ansible.builtin.import_role:
+    - name: Load the fixture sites
+      ansible.builtin.import_tasks: ../../playbooks/tasks/load-sites.yml
+    - name: Load Nginx prerequisites
+      ansible.builtin.import_role:
         name: nginx
         tasks_from: site-apply-prereqs
-    - ansible.builtin.import_role:
+    - name: Load PHP prerequisites
+      ansible.builtin.import_role:
         name: php
         tasks_from: site-apply-prereqs
   tasks:
@@ -29,6 +35,7 @@
         mode: '0700'
     - name: Create the test certificate
       ansible.builtin.command:
+        creates: "{{ tls_fixture }}/cert.pem"
         argv:
           - openssl
           - req
@@ -74,9 +81,11 @@
           ansible.builtin.slurp:
             src: /etc/nginx/sites-available/test1.example.conf
           register: before_tls
-        - ansible.builtin.assert:
+        - name: Require shared self-signed TLS before the attempt
+          ansible.builtin.assert:
             that: "'ssl-cert-snakeoil.pem' in (before_tls.content | b64decode)"
-        - ansible.builtin.copy:
+        - name: Enable the simulated ACME failure
+          ansible.builtin.copy:
             dest: "{{ tls_fixture }}/fail"
             content: fail
             mode: '0600'
@@ -88,14 +97,15 @@
             certbot_cloudflare_method: webroot
             # Fixture cert is self-signed. Public CA trust is not tested here.
             certbot_cloudflare_require_valid: false
-            wp_site_only: test1.example
         - name: Confirm the play continued and fallback is unchanged
           ansible.builtin.slurp:
             src: /etc/nginx/sites-available/test1.example.conf
           register: after_failure
-        - ansible.builtin.assert:
+        - name: Require the original vhost after failure
+          ansible.builtin.assert:
             that: after_failure.content == before_tls.content
-        - ansible.builtin.file:
+        - name: Disable the simulated ACME failure
+          ansible.builtin.file:
             path: "{{ tls_fixture }}/fail"
             state: absent
         - name: Retry ACME after the fixture error is fixed
@@ -112,10 +122,12 @@
           ansible.builtin.include_role:
             name: certbot_cloudflare
           vars: *acme_test
-        - ansible.builtin.slurp:
+        - name: Read the certificate request count
+          ansible.builtin.slurp:
             src: "{{ tls_fixture }}/calls"
           register: acme_calls
-        - ansible.builtin.assert:
+        - name: Require no duplicate certificate request
+          ansible.builtin.assert:
             that: "(acme_calls.content | b64decode).splitlines() | length == 2"
       always:
         - name: Remove only the fixture certificate
