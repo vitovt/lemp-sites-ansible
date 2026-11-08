@@ -80,6 +80,8 @@ Apply:
   Manually update one site's selected components. Run as root.
   --scope is required. For all/core/plugins/themes, --policy is also required.
   For one plugin/theme, the default policy is latest.
+  Core updates do not install new bundled themes or plugins.
+  Use --scope themes or theme:SLUG to update installed themes.
 
 """ + SCOPES + "\n\n" + SAFETY + """
 
@@ -242,7 +244,20 @@ def git(s, *args, index=None, check=True):
     return command(['runuser', '-u', s['SITE_USER'], '--', 'git', '-C', s['base'] / 'htdocs', *args], env=env, check=check)
 
 
+# This literal is trusted code, not constructed from site configuration or input.
+# It applies only to the core-update process, not the site's web requests.
+CORE_UPDATE_EXEC = (
+    "if (!defined('CORE_UPGRADE_SKIP_NEW_BUNDLED')) {"
+    "define('CORE_UPGRADE_SKIP_NEW_BUNDLED', true); } "
+    "if (CORE_UPGRADE_SKIP_NEW_BUNDLED !== true) {"
+    "WP_CLI::error('Managed core updates require CORE_UPGRADE_SKIP_NEW_BUNDLED=true. '"
+    ". 'Review the site configuration before retrying.'); }"
+)
+
+
 def wp(s, *args, check=True):
+    if args[:2] == ('core', 'update'):
+        args = (*args, '--exec=' + CORE_UPDATE_EXEC)
     base = s['base']
     return command(['runuser', '-u', s['SITE_USER'], '--', 'env', f'HOME={base}/owner-tmp',
                     f'WP_CLI_CACHE_DIR={base}/owner-tmp/wp-cli-cache', 'php' + s['PHP_VERSION'],
