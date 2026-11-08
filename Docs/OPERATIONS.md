@@ -268,3 +268,15 @@ scripts/lemp SERVER site SITE
 ```
 
 Use `--yes` to deploy without the prompt. `--dry-run` does not write or deploy.
+
+### PHP handlers after an interrupted deployment
+
+PHP reload handlers inspect pool files at execution time. A newly installed
+branch without pools is skipped if certificate issuance stops site creation.
+Existing pools must still pass `php-fpm -t` before any reload.
+
+Validation: local handler tests cover an empty branch after an early failure,
+an active pool, and an invalid pool. The existing PHP transaction tests cover
+cutover, rollback, and repeat runs. Service commands are stubbed in local tests.
+Live validation on 241 is pending: its configured SSH endpoint refused three
+connection attempts. No changes were made to server 125.

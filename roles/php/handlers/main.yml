@@ -1,15 +1,31 @@
 ---
-- name: Validate active PHP-FPM configurations
-  ansible.builtin.command:
-    argv: ["php-fpm{{ item }}", -t]
-  changed_when: false
+# Inventory versions can have no pool when an earlier role fails. Inspect the
+# filesystem at handler time, after site creation or PHP cutover has run.
+- name: Inspect active PHP-FPM pools
+  ansible.builtin.find:
+    paths: "/etc/php/{{ item }}/fpm/pool.d"
+    patterns: '*.conf'
+    file_type: file
   loop: "{{ php_site_versions }}"
+  register: php_handler_pools
   listen: Reload php-fpm
 
-# A reload also starts a stopped service. Only versions with pools are touched.
+- name: Validate active PHP-FPM configurations
+  ansible.builtin.command:
+    argv: ["php-fpm{{ item.item }}", -t]
+  changed_when: false
+  loop: "{{ php_handler_pools.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.matched | default(0) | int > 0
+  listen: Reload php-fpm
+
 - name: Reload active PHP-FPM services
   ansible.builtin.systemd_service:
-    name: "php{{ item }}-fpm"
+    name: "php{{ item.item }}-fpm"
     state: reloaded
-  loop: "{{ php_site_versions }}"
+  loop: "{{ php_handler_pools.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.matched | default(0) | int > 0
   listen: Reload php-fpm
