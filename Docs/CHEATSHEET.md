@@ -476,6 +476,169 @@ Use root `wp-monitor --files example.com` for the extra/stray PHP file report.
 Use `wp-monitor --ack example.com` only after reviewing intentional
 administrator changes. It does not accept code or Git changes.
 
+## 14. Investigate a failed verification
+
+`scripts/lemp 125-wp-lnmp verify` is a read-only check. `8 FAIL` means eight
+checks failed. It does not mean that Ansible changed eight files. The final
+`All checks pass` task joins the failures into one long message. Read the
+earlier `Result` task for separate `PASS`, `FAIL`, and `SKIP` lines.
+
+- [ ] On the control machine, run the full check again if you need the Ansible
+  inventory checks.
+- [ ] On the server, run `wp-monitor --check` for one site. It prints one line
+  per check. It does not change the administrator baseline or send an alert.
+
+```sh
+# Control machine:
+scripts/lemp 125-wp-lnmp verify
+
+# Managed server, as root:
+wp-monitor --check site1.tech
+wp-monitor --check site2.info
+wp-monitor --files site2.info
+```
+
+`--files` lists extra core PHP and stray PHP paths. It does not list plugin
+checksum mismatches. Use the WP-CLI command below for those paths. Investigate
+each `FAIL` before you accept a new baseline. Do not run `wp-git-commit` on a
+site with unrelated changes: it stages **all** changes in `htdocs`.
+
+### Example: eight failures on two sites
+
+| Check | Example | What to do |
+| --- | --- | --- |
+| `plugin_checksums` | `site1.tech`: two mismatches | List the exact plugin and file names. Check the files and their Git history. |
+| `git_status` | `site1.tech`: `M commit_changes_to_git.sh` | Review the diff and file mode. Commit only this path if the change is approved. |
+| `admin_users` | `site1.tech`: two added, one removed | Confirm the current administrators. Use `--ack` only if the change is approved. |
+| `core_checksums` | `site2.info`: extra `footer.php` | Inspect the file in the WordPress root. Quarantine it only after review. |
+| `plugin_checksums` | `site2.info`: eight mismatches | List all affected plugin files and review each plugin. |
+| `stray_php` | `site2.info`: `wp-content/w3-total-cache-config.php` | Review why this PHP file is in `wp-content`. A known plugin name does not make a file safe. |
+| `git_status` | `site2.info`: 203 changed or untracked paths | Review status, staged changes, and diffs in batches. Do not accept all paths at once. |
+| `admin_users` | `site2.info`: `Vitovt` added, `wpadmin` removed | Confirm the accounts and IDs. Then use `--ack` if the change is approved. |
+
+### List plugin checksum differences
+
+Run these commands on the managed server as root. Change `SITE` for the other
+site. The PHP runtime user can read the code but cannot update it.
+
+```sh
+SITE=site1.tech
+BASE="/srv/sites/$SITE"
+SITE_USER=$(sed -n 's/^SITE_USER=//p' "$BASE/conf/site.env")
+PHP_VERSION=$(sed -n 's/^PHP_VERSION=//p' "$BASE/conf/site.env")
+runuser -u "$SITE_USER-php" -- env \
+  HOME="$BASE/tmp" WP_CLI_CACHE_DIR="$BASE/tmp/wp-cli-cache" \
+  "php$PHP_VERSION" /usr/local/bin/wp --path="$BASE/htdocs" \
+  --skip-plugins --skip-themes plugin verify-checksums --all
+```
+
+For `site1.tech`, this command reported `File was added` for
+`all-in-one-wp-migration/storage/index.php` and `storage/index.html`. Both
+contained `Kangaroos cannot jump here`. Check their current content, Git
+status, and history before you treat them as known plugin files:
+
+```sh
+SITE=site1.tech
+BASE="/srv/sites/$SITE"
+SITE_USER=$(sed -n 's/^SITE_USER=//p' "$BASE/conf/site.env")
+P=wp-content/plugins/all-in-one-wp-migration/storage
+stat -c '%a %U:%G %n' "$BASE/htdocs/$P/index.php" "$BASE/htdocs/$P/index.html"
+sha256sum "$BASE/htdocs/$P/index.php" "$BASE/htdocs/$P/index.html"
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" status --short -- "$P"
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" log -1 -- "$P"
+```
+
+This example does not approve other files or the whole plugin. A plugin
+checksum `404` for a commercial plugin means that WordPress.org did not
+provide a checksum. It does not prove that the plugin is safe. The current
+`wp-monitor` uses the site-local code policy for checksum exceptions. Use
+`jump-in SITE`, then `policy` to review or add an exact file exception. See
+"Accept reviewed local plugin changes" above. Do not edit the installed monitor
+to hide a warning; Ansible will replace that edit.
+
+### Review and commit one Git change
+
+Run as root on the managed server. The commands run Git as the site file owner.
+`--only` limits the commit to the named path, even if other paths are staged.
+Use this example only after you approve the diff or file mode change.
+
+```sh
+SITE=site1.tech
+BASE="/srv/sites/$SITE"
+SITE_USER=$(sed -n 's/^SITE_USER=//p' "$BASE/conf/site.env")
+P=commit_changes_to_git.sh
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" status --short
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" diff -- "$P"
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" diff --summary -- "$P"
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" diff --cached -- "$P"
+# After review, commit this path only:
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" \
+  -c user.name='Site operator' -c user.email='operator@example.invalid' \
+  commit --only -m 'Review script file mode' -- "$P"
+wp-monitor --check "$SITE"
+```
+
+If the file has only a mode change, `git diff` can show no content change.
+`git diff --summary` shows the mode change. Use a real operator identity for
+the commit. For many changed paths, inspect both `git diff` and
+`git diff --cached` before any commit.
+
+### Review administrator changes
+
+List the current administrators as the PHP runtime user. Compare account IDs
+and login names with the alert. If the change came from an approved restore,
+accept the new baseline with `--ack`.
+
+```sh
+SITE=site1.tech
+BASE="/srv/sites/$SITE"
+SITE_USER=$(sed -n 's/^SITE_USER=//p' "$BASE/conf/site.env")
+PHP_VERSION=$(sed -n 's/^PHP_VERSION=//p' "$BASE/conf/site.env")
+runuser -u "$SITE_USER-php" -- env \
+  HOME="$BASE/tmp" WP_CLI_CACHE_DIR="$BASE/tmp/wp-cli-cache" \
+  "php$PHP_VERSION" /usr/local/bin/wp --path="$BASE/htdocs" \
+  --skip-plugins --skip-themes user list \
+  --role=administrator --fields=ID,user_login,user_email
+# Only after you confirm every administrator:
+wp-monitor --ack "$SITE"
+wp-monitor --check "$SITE"
+```
+
+`--ack` accepts the administrator list. It does not accept a checksum or Git
+failure. Run the same review for `site2.info` before you accept its list.
+
+### Inspect extra or stray PHP
+
+These commands read metadata and Git state. They do not execute the PHP files.
+Review the content with a trusted editor before you remove, quarantine, or
+accept a file.
+
+```sh
+SITE=site2.info
+BASE="/srv/sites/$SITE"
+SITE_USER=$(sed -n 's/^SITE_USER=//p' "$BASE/conf/site.env")
+wp-monitor --files "$SITE"
+stat -c '%a %U:%G %n' "$BASE/htdocs/footer.php" \
+  "$BASE/htdocs/wp-content/w3-total-cache-config.php"
+sha256sum "$BASE/htdocs/footer.php" \
+  "$BASE/htdocs/wp-content/w3-total-cache-config.php"
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" status --short
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" diff --cached --stat
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" diff --stat
+runuser -u "$SITE_USER" -- git -C "$BASE/htdocs" status --short -- \
+  footer.php wp-content/w3-total-cache-config.php
+```
+
+For a report-only Ansible inspection, use `site-repair-core.yml` without
+`confirm`. That playbook does not repair or quarantine without confirmation:
+
+```sh
+# Control machine:
+ansible-playbook -i inventories/125-wp-lnmp/settings.yml \
+  playbooks/site-repair-core.yml --limit 125-wp-lnmp \
+  -e repair_site=site2.info
+```
+
 ## 15. Enable Redis Object Cache (Valkey)
 
 Valkey is the server backend. Redis Object Cache is the WordPress plugin.
