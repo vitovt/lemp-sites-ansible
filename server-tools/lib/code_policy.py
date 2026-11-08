@@ -248,7 +248,7 @@ def check_plugins(base, user, php_version, wpcli, *, as_current_user=False, comp
             return 'FAIL plugin_checksums: local Git baseline missing or dirty'
         inventory = subprocess.run(prefix + ['plugin', 'list', '--format=json'],
                                    text=True, capture_output=True, timeout=120)
-        match = re.fullmatch(r'Success: Verified (\d+) of (\d+) plugins\.\s*', result.stdout)
+        match = re.fullmatch(r'Success: Verified (\d+) of (\d+) plugins(?: \((\d+) skipped\))?\.\s*', result.stdout)
         try:
             plugins = json.loads(inventory.stdout)
             count = sum(p.get('status') in ('active', 'inactive') and (component is None or p.get('name') == component) for p in plugins)
@@ -257,7 +257,8 @@ def check_plugins(base, user, php_version, wpcli, *, as_current_user=False, comp
         skipped_warnings = len(re.findall(r'Could not retrieve the checksums for version .* skipping\.', result.stderr))
         if result.returncode == 0 and inventory.returncode == 0 and (
                 (count == 0 and result.stdout.strip() == 'Success: Plugin already verified.') or
-                (match and int(match[2]) == count and int(match[1]) + skipped_warnings == count)):
+                (match and int(match[2]) == count and int(match[1]) + skipped_warnings == count
+                 and (match[3] is None or int(match[3]) == skipped_warnings))):
             return f'PASS plugin_checksums: {count - skipped_warnings} verified, {skipped_warnings} unavailable'
         return f'FAIL plugin_checksums: checker returned invalid output (exit {result.returncode})'
     unexpected = []

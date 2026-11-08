@@ -129,6 +129,30 @@ class CodePolicyTests(unittest.TestCase):
             with patch.object(policy, 'load', return_value=data), patch.object(policy.subprocess, 'run', return_value=result):
                 self.assertIn('PASS plugin_checksums:', policy.check_plugins(base, 'owner', '8.3', '/mock/wp'))
 
+    def test_success_summary_with_skipped_plugins(self):
+        warnings = ''.join(
+            f'Warning: Could not retrieve the checksums for version 1.0 of plugin premium-{i}, skipping.\n'
+            for i in range(7))
+        inventory = SimpleNamespace(stdout=json.dumps([
+            {'name': f'plugin-{i}', 'status': 'active'} for i in range(21)
+        ]), returncode=0)
+        for summary, passes in (
+            ('Success: Verified 14 of 21 plugins (7 skipped).\n', True),
+            ('Success: Verified 14 of 21 plugins.\n', True),
+            ('Success: Verified 14 of 21 plugins (6 skipped).\n', False),
+            ('Success: Verified 15 of 21 plugins (7 skipped).\n', False),
+            ('Success: Verified 14 of 22 plugins (7 skipped).\n', False),
+        ):
+            result = SimpleNamespace(stdout=summary, stderr=warnings, returncode=0)
+            with self.subTest(summary=summary), \
+                 patch.object(policy, 'load', return_value=policy.empty()), \
+                 patch.object(policy.subprocess, 'run', side_effect=[result, inventory]):
+                actual = policy.check_plugins('/tmp/site', 'owner', '8.3', '/mock/wp')
+                if passes:
+                    self.assertEqual(actual, 'PASS plugin_checksums: 14 verified, 7 unavailable')
+                else:
+                    self.assertTrue(actual.startswith('FAIL plugin_checksums:'), actual)
+
     def test_git_mode_requires_tracked_clean_plugin(self):
         data = policy.empty()
         data['plugins']['custom'] = {'checksums': {'mode': 'git', 'exceptions': {}}}
