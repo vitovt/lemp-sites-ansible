@@ -84,3 +84,33 @@ Use `jump-in-help` for detailed work inside a site shell. Controller commands
 run in the cloned repository, not on the hosting server. To read this reference
 before deployment, run `PYTHONPATH=server-tools/lib python3 -c 'import lemp_help; lemp_help.main()'`
 in the repository. Normal `server_tools` delivery installs the new command.
+
+## Read update help
+
+```sh
+wp-update --help
+wp-update plan --help
+wp-update apply --help
+wp-update run --help
+```
+
+`plan` lists updates. `apply` updates selected components of one site. `run`
+uses automatic rules for all installed sites. Scope values are `all`, `core`, `plugins`, `themes`,
+`plugin:SLUG`, and `theme:SLUG`. Bulk apply scopes require an explicit policy. Mode help lists defaults and safety options.
+
+For core, `minor` uses the WordPress minor-release classification. For plugins
+and themes, it keeps the first version number. `latest` permits major updates.
+
+Help headings and status messages use terminal colors. Set `NO_COLOR=1` to
+remove colors. Redirected output, stored logs, and `TERM=dumb` remain plain text.
+Help does not need root, site facts, or a connection to the server services.
+
+Update plugins or themes without updating core:
+
+```sh
+wp-update plan example.com --scope plugins --policy minor
+wp-update apply example.com --scope plugins --policy minor
+wp-update apply example.com --scope themes --policy minor
+```
+
+Local holds and standard backup, Git, and health checks still apply.

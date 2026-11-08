@@ -11,25 +11,108 @@ import subprocess
 import sys
 import tempfile
 
-SHORT = "Usage: wp-update {plan DOMAIN | apply DOMAIN --scope SCOPE | run --automatic --all-sites}\nRun wp-update --help for options and examples."
-HELP = """Update managed WordPress code with WP-CLI and scoped Git commits.
+SHORT = """Usage: wp-update COMMAND [SITE] [OPTIONS]
+
+Commands:
+  plan SITE     Show available updates. Do not apply them.
+    wp-update plan example.com
+  apply SITE    Update selected components of one site.
+    wp-update apply example.com --scope core --policy minor
+  run           Automatically update all installed sites.
+    wp-update run --automatic --all-sites
+
+Run wp-update COMMAND --help for mode options.
+Run wp-update --help for the full reference."""
+SCOPES = """Scope:
+  all            Core, plugins, and themes. Honour local holds.
+  core           WordPress core only.
+  plugins        All plugins only. Honour local holds.
+  themes         All themes only. Honour local holds.
+  plugin:SLUG    One plugin. Example: plugin:akismet
+  theme:SLUG     One theme. Example: theme:allium
+
+Policy:
+  minor          Core: WordPress minor releases, such as 5.9.19 -> 5.9.20.
+                 Plugins/themes: keep the first version number.
+                 Example: 3.9 -> 3.10 is allowed; 3.x -> 4.x is not.
+  latest         Permit the latest available version, including major updates."""
+SAFETY = """Safety options (manual apply only):
+  --skip-backup-check    Skip today's completed-backup check. No backup is created.
+  --allow-dirty-target   Permit local edits in the update target to be overwritten.
+                        Do not automatically commit that target.
+  --no-maintenance      Do not enable the hosting maintenance gate.
+
+Without these options, apply requires today's completed site backup and a clean
+update target. Unrelated local changes are allowed and are not added to the commit.
+An uncertain failed update keeps its maintenance gate enabled.
+No automatic rollback is performed."""
+MODE_HELP = {
+    'plan': """Usage: wp-update plan SITE [--scope SCOPE] [--policy POLICY]
+
+Plan:
+  Show available updates, backup status, and Git status. Do not update the site.
+  Defaults: --scope all --policy latest.
+  Apply-only safety options are not accepted.
+
+""" + SCOPES + """
 
 Examples:
   wp-update plan example.com
-  wp-update apply example.com --scope all --policy minor
-  wp-update apply example.com --scope core --policy latest
-  wp-update apply example.com --scope plugin:example-plugin --skip-backup-check
-  wp-update apply example.com --scope plugin:example-plugin --allow-dirty-target --no-maintenance
-  wp-update run --automatic --all-sites
+  wp-update plan example.com --scope core --policy minor
+  wp-update plan example.com --scope plugin:akismet""",
+    'apply': """Usage: wp-update apply SITE --scope SCOPE [--policy POLICY] [OPTIONS]
 
-The default backup check requires a completed backup of this site from today.
---skip-backup-check is manual only. It never starts a backup.
---allow-dirty-target is manual only; the target remains uncommitted.
---no-maintenance is manual only. Failed uncertain updates keep maintenance on.
---scope all selects core, plugins, and themes; core selects core only.
---policy minor stays within each component's major version; latest permits it.
-Automatic runs use minor policy, clean Git, and the backup check.
-"""
+Apply:
+  Manually update one site's selected components. Run as root.
+  --scope is required. For all/core/plugins/themes, --policy is also required.
+  For one plugin/theme, the default policy is latest.
+
+""" + SCOPES + "\n\n" + SAFETY + """
+
+Examples:
+  wp-update apply example.com --scope core --policy minor
+  wp-update apply example.com --scope all --policy minor
+  wp-update apply example.com --scope plugins --policy minor
+  wp-update apply example.com --scope themes --policy minor
+  wp-update apply example.com --scope plugin:akismet --policy latest
+  wp-update apply example.com --scope theme:allium --policy minor
+  wp-update apply example.com --scope plugin:akismet --skip-backup-check""",
+    'run': """Usage: wp-update run --automatic --all-sites
+
+Run:
+  Automatically update all installed sites. Use from cron or systemd as root.
+  Both --automatic and --all-sites are required. Do not supply a domain.
+  Fixed selection: all components, minor policy. Honour local holds.
+  Require clean Git and today's completed site backup.
+  Manual safety bypass options are not accepted. No backup is created.
+  Existing --scope/--policy arguments are overridden by all/minor.
+
+""" + SCOPES[SCOPES.index('Policy:'):].split('  latest', 1)[0].rstrip() + """
+
+Examples:
+  wp-update run --automatic --all-sites""",
+}
+HELP = SHORT + "\n\n" + "\n\n".join(MODE_HELP.values())
+
+
+def terminal_text(text, color, stream):
+    if stream.isatty() and os.environ.get('TERM', 'dumb') != 'dumb' and 'NO_COLOR' not in os.environ:
+        return f'\033[{color}m{text}\033[0m'
+    return text
+
+
+def print_help_text(text):
+    for line in text.splitlines():
+        heading = line.startswith('Usage:') or (line and not line.startswith(' ') and line.endswith(':'))
+        print(terminal_text(line, '1;36', sys.stdout) if heading else line)
+
+
+def print_status(line, stream=None):
+    stream = sys.stdout if stream is None else stream
+    color = '31' if line.startswith('FAIL') else '33' if line.startswith(('HINT', 'SKIP', 'WARNING')) else '32' if line.startswith('PASS') else None
+    print(terminal_text(line, color, stream) if color else line, file=stream, flush=True)
+
+
 BACKUP_MARKERS = Path('/var/lib/wp-hosting/backups')
 SLUG = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
 
@@ -98,9 +181,18 @@ def diagnostic(s, reason):
 
 class HelpParser(argparse.ArgumentParser):
     def error(self, message):
-        super().error(message + '\nHINT Run wp-update --help for valid commands and examples. '
-                      'Example: wp-update apply example.com --scope core --policy minor. '
-                      'Run this server command as root (or use sudo).')
+        stream = sys.stderr
+        print(terminal_text('ERROR', '31', stream), file=stream)
+        print('  ' + message + '\n', file=stream)
+        if 'scope' in message.lower():
+            print(terminal_text('VALID VALUES', '1;36', stream), file=stream)
+            print('  all\n  core\n  plugins\n  themes\n  plugin:SLUG\n  theme:SLUG\n', file=stream)
+        print(terminal_text('HINT', '33', stream), file=stream)
+        print('  Run wp-update --help or wp-update COMMAND --help.\n'
+              '  Run updates as root (or use sudo).\n', file=stream)
+        print(terminal_text('EXAMPLE', '1;36', stream), file=stream)
+        print('  wp-update apply example.com --scope core --policy minor', file=stream)
+        self.exit(2)
 
 
 def command(args, *, env=None, check=True):
@@ -207,7 +299,7 @@ def inventory(s, scope, release, holds, log=None):
                 'wp-mail.php', 'wp-settings.php', 'wp-signup.php', 'wp-trackback.php',
                 'xmlrpc.php', 'license.txt', 'readme.html']))
     for kind in ('plugin', 'theme'):
-        if scope not in ('all', kind) and not scope.startswith(kind + ':'):
+        if scope not in ('all', kind + 's') and not scope.startswith(kind + ':'):
             continue
         entries = json.loads(wp(s, kind, 'list', '--format=json').stdout or '[]')
         for item in entries:
@@ -277,7 +369,7 @@ def report(s, lines):
         expanded.extend(diagnostic(s, item) if item.startswith(('FAIL ', 'SKIP ')) else [item])
     lines = expanded
     for item in lines:
-        print(item, file=sys.stderr if item.startswith(('FAIL', 'SKIP', 'HINT')) else sys.stdout, flush=True)
+        print_status(item, sys.stderr if item.startswith(('FAIL', 'SKIP', 'HINT')) else sys.stdout)
     line = '\n'.join(lines) + '\n'
     log = s['base'] / 'logs' / ('wp-update-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '.log')
     try:
@@ -379,10 +471,11 @@ def apply(s, args):
 
 def main(argv):
     if not argv:
-        print(SHORT)
+        print_help_text(SHORT)
         return 0
-    if argv == ['--help']:
-        print(SHORT + '\n\n' + HELP)
+    if '--help' in argv or '-h' in argv:
+        mode = argv[0] if argv[0] in MODE_HELP else None
+        print_help_text(MODE_HELP[mode] if mode else HELP)
         return 0
     parser = HelpParser(add_help=False)
     parser.add_argument('action', choices=['plan', 'apply', 'run'])
@@ -404,10 +497,10 @@ def main(argv):
             parser.error('plan/apply require one domain')
         if args.action == 'apply' and not args.scope:
             parser.error('apply requires --scope')
-        if args.scope and args.scope not in ('all', 'core') and not re.fullmatch(r'(plugin|theme):[a-z0-9][a-z0-9_-]*', args.scope):
+        if args.scope and args.scope not in ('all', 'core', 'plugins', 'themes') and not re.fullmatch(r'(plugin|theme):[a-z0-9][a-z0-9_-]*', args.scope):
             parser.error('invalid scope')
-        if args.action == 'apply' and args.scope in ('all', 'core') and not args.policy:
-            parser.error('all/core require --policy')
+        if args.action == 'apply' and args.scope in ('all', 'core', 'plugins', 'themes') and not args.policy:
+            parser.error('all/core/plugins/themes require --policy')
         args.scope = args.scope or 'all'
         args.policy = args.policy or 'latest'
     if args.action == 'plan' and (args.skip_backup_check or args.allow_dirty_target or args.no_maintenance):
@@ -422,18 +515,18 @@ def main(argv):
             print('BACKUP', backup or 'missing today')
             if not backup:
                 for hint in error_hints(s, 'No completed site backup from today'):
-                    print('HINT ' + hint)
+                    print_status('HINT ' + hint)
             dirty = changed(s)
             print('GIT', 'dirty' if dirty else 'clean')
             if dirty:
                 for hint in error_hints(s, 'Git index or worktree is not clean'):
-                    print('HINT ' + hint)
+                    print_status('HINT ' + hint)
             for item in inventory(s, args.scope, args.policy, policy(s['domain'])):
                 print('UPDATE', *item[:4])
             return 0
         except Exception as exc:
             for line in diagnostic({'domain': args.domain, 'base': Path('/srv/sites') / args.domain}, f'FAIL {exc}'):
-                print(line, file=sys.stderr)
+                print_status(line, sys.stderr)
             return 1
     domains = [p.name for p in sorted(Path('/srv/sites').iterdir()) if (p / 'conf/wordpress-installed').exists()] if args.action == 'run' else [args.domain]
     failed = False
@@ -443,7 +536,7 @@ def main(argv):
                 failed = apply(site(domain), args) or failed
         except Exception as exc:
             for line in diagnostic({'domain': domain, 'base': Path('/srv/sites') / domain}, f'FAIL {domain}: {exc}'):
-                print(line, file=sys.stderr)
+                print_status(line, sys.stderr)
             subprocess.run(['/usr/local/sbin/tg-alert', f'wp-update failed: {domain}; inspect logs'], check=False)
             failed = True
     return int(failed)

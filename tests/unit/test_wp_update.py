@@ -138,7 +138,7 @@ class InterfaceTests(unittest.TestCase):
     def test_invalid_cli_has_help_hint(self):
         result = self.run_cli('apply', 'example.com', '--scope', 'invalid')
         self.assertEqual(result.returncode, 2)
-        self.assertIn('HINT Run wp-update --help', result.stderr)
+        self.assertIn('HINT\n  Run wp-update --help', result.stderr)
 
     def test_plan_failure_has_hints_without_a_traceback(self):
         errors = io.StringIO()
