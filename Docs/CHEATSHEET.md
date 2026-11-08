@@ -58,6 +58,92 @@ checksum checks. Raw `wp plugin update` calls do not honour the hold. Local
 rules are site data; do not put them in Ansible. Use `allow-file` only after
 you review the exact file state. See [site code operations](SITE_CODE_POLICY.md).
 
+### Accept reviewed local plugin changes
+
+These rules apply to one site. They do not change plugin files or create Git commits.
+An update hold and an integrity exception are separate settings.
+
+#### Check the current state
+
+```sh
+jump-in example.com
+site-check plugins wordpress-seo
+policy show
+policy show --yaml
+git status --short -- wp-content/plugins/wordpress-seo/
+git diff -- wp-content/plugins/wordpress-seo/
+```
+
+Compare unexpected changes with the trusted release of the installed version.
+If changes are already committed, review their Git commit; `git diff` only shows
+uncommitted changes. Do not accept differences that you cannot explain.
+
+#### Accept one exact file state
+
+Exact file exceptions require `wordpress_org` mode. Use a path relative to
+the plugin directory, not to `htdocs`. After review:
+
+```sh
+policy checksums wordpress-seo --mode wordpress_org
+policy allow-file wordpress-seo inc/class-addon-manager.php --yes
+policy show --yaml
+site-check plugins wordpress-seo
+```
+
+Repeat `allow-file` for each approved file. The rule records the mismatch type
+and SHA-256 for an added or modified file, or expected absence for a deleted
+file. A later content change fails the check again. Reaccept only after review.
+This mode keeps upstream checksum checks for the rest of the plugin.
+
+#### Remove a file exception
+
+```sh
+policy remove-file wordpress-seo inc/class-addon-manager.php
+policy show --yaml
+site-check plugins wordpress-seo
+```
+
+This removes permission to accept the difference. It does not restore the file.
+If the file still differs from the official release, expect `FAIL` again.
+To accept a newly reviewed state instead, run `allow-file` again for that path.
+
+#### Use Git as the baseline for a locally maintained plugin
+
+Use this alternative when you maintain the whole plugin locally. First ensure
+its code is tracked and reviewed changes are committed. Then:
+
+```sh
+policy checksums wordpress-seo --mode git
+site-check plugins wordpress-seo
+```
+
+Git mode replaces upstream checksum verification for this plugin with a local
+tracked, clean Git baseline. It is broader than exact file exceptions. Changing
+to Git mode clears existing file exceptions. New commits become the reviewed
+baseline; the operator is responsible for their content.
+
+To return from Git mode to upstream checks:
+
+```sh
+policy checksums wordpress-seo --mode wordpress_org
+site-check plugins wordpress-seo
+```
+
+Local differences will fail again unless you restore the release or add reviewed
+exact file exceptions. Returning to upstream mode does not remove an update hold.
+For existing upstream-mode exceptions, use `remove-file` to revoke each rule.
+
+Finish the full check as root:
+
+```sh
+exit
+wp-monitor --check example.com
+```
+
+`accepted` counts permitted mismatch rows; check `policy show --yaml` to see
+whether acceptance uses exact hashes or Git mode. `unavailable` means upstream
+checksums could not be obtained. It is not proof that those plugins are safe.
+
 ## 1. Prepare the control machine
 
 - [ ] Clone the repository and install dependencies.
