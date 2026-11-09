@@ -15,6 +15,25 @@ module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.
 loader.exec_module(module)
 
 
+class CoreSelectionTests(unittest.TestCase):
+    def test_latest_and_minor_are_independent_of_api_order(self):
+        updates = [{'version': '6.1.16', 'update_type': 'minor'},
+                   {'version': '7.1.4', 'update_type': 'major'},
+                   {'version': '6.1.9', 'update_type': 'minor'}]
+        for entries in (updates, list(reversed(updates))):
+            self.assertEqual(module.select_core_update('6.1.1', entries, 'latest')['version'], '7.1.4')
+            self.assertEqual(module.select_core_update('6.1.1', entries, 'minor')['version'], '6.1.16')
+
+    def test_minor_never_crosses_branch_even_if_api_label_is_wrong(self):
+        updates = [{'version': '7.1.4', 'update_type': 'minor'}]
+        self.assertIsNone(module.select_core_update('6.1.1', updates, 'minor'))
+
+    def test_no_downgrade_or_prerelease(self):
+        updates = [{'version': v} for v in ('6.1', '6.1.16', '7.2-beta1')]
+        self.assertIsNone(module.select_core_update('6.1.16', updates, 'latest'))
+        self.assertEqual(module.select_core_update('6.1', updates, 'minor')['version'], '6.1.16')
+
+
 class CommandTests(unittest.TestCase):
     def test_core_update_sets_process_local_policy(self):
         site = {'base': Path('/srv/sites/fixture.example'), 'SITE_USER': 'fixture', 'PHP_VERSION': '8.3'}

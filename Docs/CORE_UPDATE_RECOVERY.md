@@ -146,3 +146,20 @@ major-version update. No live server was accessed or changed during this fix.
 Local results: `tests/check.sh` passed 250 unit tests and all syntax checks.
 The isolated committed feature source passed 41 updater tests. PHP policy tests
 ran with the local PHP CLI. A real WordPress major upgrade remains untested.
+
+## Core update selection
+
+- `minor` selects the newest maintenance release in the current branch.
+  Example: `6.1.1` to `6.1.16`. It does not select `6.2` or `7.1`.
+- Automatic `wp-update run SITE` uses `minor`. Review and start branch changes
+  manually with `wp-update apply SITE --scope core --policy latest`.
+- `latest` selects the highest stable version returned by the WordPress API.
+  API response order does not affect selection.
+- Each plan and apply requests a fresh update check. Apply installs the exact
+  core version selected during that run. A separate earlier plan is not a lock.
+- Plugin and theme `minor` rules are unchanged. They keep the first version number.
+
+Only the latest WordPress major release is officially supported. Security fixes
+for older branches are backported as a courtesy, without a support guarantee.
+`minor` installs available backports. It cannot guarantee future security fixes.
+Review branch upgrades regularly. See [WordPress supported versions](https://wordpress.org/documentation/article/supported-versions/).

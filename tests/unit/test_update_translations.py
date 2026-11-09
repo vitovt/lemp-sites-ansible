@@ -61,6 +61,7 @@ class TranslationTests(unittest.TestCase):
         paths = ['wp-includes', *module.translation_paths(self.site, 'core', 'core')]
         def wp(site, *args, **kwargs):
             if args[:2] == ('core', 'update'):
+                self.assertEqual(args, ('core', 'update', '--version=2'))
                 mutate()
             return SimpleNamespace(stdout='2', returncode=0)
         with patch.object(module, 'inventory', return_value=[('core', 'core', '1', '2', paths)]), \
@@ -138,9 +139,9 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(module.translation_paths(self.site, 'theme', 'allium'), [paths[5]])
         def wp(site, *args, **kwargs):
             if args[:2] == ('core', 'version'):
-                data = '1'
+                data = '6.1.1'
             elif args[:2] == ('core', 'check-update'):
-                data = json.dumps([{'version': '2', 'update_type': 'minor'}])
+                data = json.dumps([{'version': '6.1.16', 'update_type': 'minor'}])
             else:
                 name = 'akismet' if args[0] == 'plugin' else 'allium'
                 data = json.dumps([{'name': name, 'version': '1', 'update': 'available', 'update_version': '2'}])

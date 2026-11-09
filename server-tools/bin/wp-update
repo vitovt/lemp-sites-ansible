@@ -331,12 +331,35 @@ def backup_today(s):
     return None
 
 
+def select_core_update(old, updates, release):
+    # WordPress maintenance releases keep the first two version components.
+    # Ignore prereleases and never depend on the API response order.
+    def version(value):
+        if not isinstance(value, str) or not re.fullmatch(r'\d+\.\d+(?:\.\d+)?', value):
+            return None
+        parts = tuple(map(int, value.split('.')))
+        return parts + (0,) * (3 - len(parts))
+
+    current = version(old)
+    if current is None:
+        raise RuntimeError('Cannot select a stable core update for version ' + old)
+    candidates = []
+    for item in updates:
+        target = version(item.get('version'))
+        if target is None or target <= current:
+            continue
+        if release == 'minor' and target[:2] != current[:2]:
+            continue
+        candidates.append((target, item))
+    return max(candidates, key=lambda entry: entry[0])[1] if candidates else None
+
+
 def inventory(s, scope, release, holds, log=None):
     result = []
     if scope in ('all', 'core'):
         old = wp(s, 'core', 'version').stdout.strip()
-        updates = json.loads(wp(s, 'core', 'check-update', '--format=json').stdout or '[]')
-        selected = next((x for x in updates if release == 'latest' or x.get('update_type') == 'minor'), None)
+        updates = json.loads(wp(s, 'core', 'check-update', '--force-check', '--format=json').stdout or '[]')
+        selected = select_core_update(old, updates, release)
         if selected:
             result.append(('core', 'core', old, selected['version'], ['wp-admin', 'wp-includes',
                 'index.php', 'wp-activate.php', 'wp-blog-header.php', 'wp-comments-post.php',
@@ -560,7 +583,9 @@ def apply(s, args):
                 owned_marker = False
             try:
                 command_args = [kind, 'update', name] if kind != 'core' else ['core', 'update']
-                if args.policy == 'minor':
+                if kind == 'core':
+                    command_args.append('--version=' + new)
+                elif args.policy == 'minor':
                     command_args.append('--minor')
                 wp(s, *command_args)
                 got = wp(s, kind, 'get', name, '--field=version').stdout.strip() if kind != 'core' else wp(s, 'core', 'version').stdout.strip()
