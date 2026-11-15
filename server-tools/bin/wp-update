@@ -24,6 +24,8 @@ Commands:
     wp-update plan example.com
   apply SITE    Update selected components of one site.
     wp-update apply example.com --scope core --policy minor
+  translations SITE Verify and repair core translations without updating core.
+    wp-update translations example.com
   reinstall SITE Reinstall one plugin/theme at its current version.
     wp-update reinstall example.com --scope plugin:akismet
   run           Automatically update all installed sites.
@@ -126,6 +128,15 @@ Exact official package comparison is required before committing a replacement.
 Private/unavailable packages fail without being replaced.
 
 """ + SAFETY
+
+MODE_HELP['translations'] = """Usage: wp-update translations SITE [--skip-backup-check]
+
+Repair translations for the currently installed core and exact site WPLANG.
+Requires today's completed backup and clean core translation targets.
+Uses the operation lock, maintenance, scope, permissions, health and Git guards.
+Never updates core files, changes WPLANG, or activates another language.
+Unknown locales fail with explicit migration advice where a mapping is known.
+"""
 
 HELP = SHORT + "\n\n" + "\n\n".join(MODE_HELP.values())
 
@@ -609,6 +620,102 @@ def core_language(s):
     return value
 
 
+class SiteLanguageChanged(RuntimeError):
+    pass
+
+
+def translation_retry(s, lines):
+    lines.append('HINT Inspect site language: ' + shlex.join(['jump-in', s['domain']]))
+    lines.append('HINT Inside that shell: wp option get WPLANG; wp language core list --fields=language,status,update')
+    lines.append('HINT Retry translations without updating core: ' + shlex.join(['wp-update', 'translations', s['domain']]))
+
+
+def update_core_translations(s, language, lines):
+    """Require an exact API locale and actual installed files, never activate it."""
+    try:
+        if language and language != 'en_US':
+            rows = json.loads(wp(s, 'language', 'core', 'list', '--fields=language', '--format=json').stdout)
+            if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) or not isinstance(row.get('language'), str) for row in rows):
+                raise RuntimeError('Cannot validate available core translation locales; inspect WordPress.org translation API access')
+            available = {row['language'] for row in rows}
+            if language not in available:
+                lines.append(f'WARNING Unknown core translation locale: WPLANG={language}; no installation attempted')
+                # This is a documented WordPress locale mapping, not a prefix guess.
+                if language == 'uk_UA' and 'uk' in available:
+                    lines.append('HINT WordPress Ukrainian locale is uk and is available for this core version. WPLANG was not changed.')
+                    lines.append('HINT Explicit migration, only if you choose uk: ' + shlex.join(['jump-in', s['domain']]))
+                    lines.append('HINT Inside that shell, first run: wp language core install uk')
+                    lines.append('HINT Require exit 0 from: wp language core is-installed uk')
+                    lines.append('HINT Only after successful installation, explicitly change site language: wp option update WPLANG uk')
+                    lines.append('HINT Then exit the site shell and run: ' + shlex.join(['wp-update', 'translations', s['domain']]))
+                raise RuntimeError(f'Core translation unavailable for WPLANG={language}')
+            wp(s, 'language', 'core', 'install', language)
+            installed = wp(s, 'language', 'core', 'is-installed', language, check=False)
+            if installed.returncode:
+                raise RuntimeError(f'Core translation {language} is not installed after install returned success; run wp language core is-installed {language} inside the site shell')
+        wp(s, 'language', 'core', 'update')
+        if language and language != 'en_US':
+            if wp(s, 'language', 'core', 'is-installed', language, check=False).returncode:
+                raise RuntimeError(f'Core translation {language} is missing after translation update')
+    finally:
+        if core_language(s) != language:
+            raise SiteLanguageChanged(f'Site WPLANG changed unexpectedly (expected {language or "empty"}); inspect wp option get WPLANG; no automatic language change is permitted')
+
+
+def translations_only(s, args):
+    """Repair translations under the same backup, maintenance and Git guards."""
+    lines = [f'START {s["domain"]} translations-only; core files will not be updated']
+    marker = s['base'] / 'conf/maintenance'
+    owned = False
+    failed = False
+    try:
+        if marker.exists():
+            raise RuntimeError('Site is already in maintenance')
+        if not args.skip_backup_check and not backup_today(s):
+            raise RuntimeError('No completed site backup from today')
+        lines.append('BACKUP check skipped' if args.skip_backup_check else 'BACKUP completed today')
+        git(s, 'rev-parse', '--verify', 'HEAD')
+        paths = translation_paths(s, 'core', 'core')
+        if paths and target_dirty(s, paths):
+            raise RuntimeError('Core translation files have local changes; review git diff HEAD -- wp-content/languages/ inside the site shell before retrying')
+        language = core_language(s)
+        wp(s, 'core', 'verify-checksums')
+        before = file_state(s)
+        marker.write_text('managed translation update\n')
+        owned = True
+        marker.chmod(0o644)
+        update_core_translations(s, language, lines)
+        wp(s, 'core', 'verify-checksums')
+        command(['/usr/local/sbin/site-fix-perms', s['domain']])
+        health = command(['curl', '--noproxy', '*', '-sk', '--max-time', '20', '-o', '/dev/null', '-w', '%{http_code}',
+            '--unix-socket', '/run/wp-hosting/health.sock', '-H', 'X-WP-Health: 1',
+            'https://' + s['domain'] + '/?wp-update-health=1']).stdout
+        if health != '200':
+            raise RuntimeError('Uncached health check failed')
+        paths = sorted(set(paths) | set(translation_paths(s, 'core', 'core')))
+        after = file_state(s)
+        if any(not in_scope(path, paths) for path in changed_paths(before, after)):
+            raise RuntimeError('Translation repair changed paths outside core translations; inspect Git before retrying')
+        commit = commit_paths(s, paths, 'Update core translations') if paths else None
+        lines.append(f'PASS translations:core WPLANG={language or "en_US"} installed and verified commit={commit or "none"}')
+    except Exception as exc:
+        failed = True
+        lines.append(f'FAIL translations:core: {exc}')
+        if isinstance(exc, CommandFailure):
+            try:
+                filename = save_failure_diagnostic(s, 'translations', 'core', 'translations', exc)
+                lines.append('HINT Read private subprocess diagnostics as root: ' + shlex.join(['cat', '--', filename]))
+            except OSError:
+                lines.append('WARNING Could not save translation subprocess diagnostics')
+        translation_retry(s, lines)
+    finally:
+        if owned:
+            marker.unlink(missing_ok=True)
+    lines.append('FAIL' if failed else 'PASS')
+    report(s, lines)
+    return failed
+
+
 def core_package_url(version, locale):
     if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', version):
         raise RuntimeError('Invalid target core version')
@@ -823,12 +930,15 @@ def apply(s, args):
                     stage = 'checksums'
                     wp(s, 'core', 'verify-checksums', '--version=' + new, '--locale=' + package_locale)
                     stage = 'translations'
-                    if site_language and site_language != 'en_US':
-                        wp(s, 'language', 'core', 'install', site_language)
-                    wp(s, 'language', 'core', 'update')
-                    stage = 'verify-site-language'
-                    if core_language(s) != site_language:
-                        raise RuntimeError('Site WPLANG changed during core update; inspect wp option get WPLANG before retrying')
+                    translation_error = None
+                    try:
+                        update_core_translations(s, site_language, lines)
+                    except SiteLanguageChanged:
+                        raise
+                    except Exception as exc:
+                        translation_error = exc
+                    stage = 'checksums-after-translations'
+                    wp(s, 'core', 'verify-checksums', '--version=' + new, '--locale=' + package_locale)
                 elif kind == 'plugin':
                     stage = 'checksums'
                     verify = wp(s, 'plugin', 'verify-checksums', name, '--strict', check=False)
@@ -849,9 +959,23 @@ def apply(s, args):
                 if outside:
                     raise RuntimeError('Update changed paths outside the selected component: ' + ', '.join(repr(path) for path in outside))
                 stage = 'commit'
-                commit = None if dirty and not verified_replacement else commit_paths(s, paths, f'{"Reinstall" if reinstall else "Update"} {kind}:{name} {old} to {new}')
+                commit_targets = [path for path in paths if not path.startswith('wp-content/languages/')] if kind == 'core' and translation_error is not None else paths
+                commit = None if dirty and not verified_replacement else commit_paths(s, commit_targets, f'{"Reinstall" if reinstall else "Update"} {kind}:{name} {old} to {new}')
                 lines.append(f'PASS {kind}:{name} {old} -> {new} commit={commit or "none"}')
                 completed.append((kind, name, old, new))
+                if kind == 'core':
+                    if translation_error is None:
+                        lines.append(f'PASS translations:core WPLANG={site_language or "en_US"} installed and verified')
+                    else:
+                        failed = True
+                        lines.append(f'FAIL translations:core: {translation_error}; verified core result reported above; translation files excluded from its commit')
+                        if isinstance(translation_error, CommandFailure):
+                            try:
+                                filename = save_failure_diagnostic(s, 'translations', 'core', 'translations', translation_error)
+                                lines.append('HINT Read private subprocess diagnostics as root: ' + shlex.join(['cat', '--', filename]))
+                            except OSError:
+                                lines.append('WARNING Could not save translation subprocess diagnostics')
+                        translation_retry(s, lines)
             except Exception as exc:
                 lines.append(f'FAIL {kind}:{name}: stage={stage}: {exc}')
                 if isinstance(exc, CommandFailure):
@@ -913,7 +1037,7 @@ def main(argv):
         print_help_text(MODE_HELP[mode] if mode else HELP)
         return 0
     parser = HelpParser(add_help=False)
-    parser.add_argument('action', choices=['plan', 'apply', 'reinstall', 'run'])
+    parser.add_argument('action', choices=['plan', 'apply', 'reinstall', 'translations', 'run'])
     parser.add_argument('domain', nargs='?')
     parser.add_argument('--scope')
     parser.add_argument('--policy', choices=['minor', 'latest'])
@@ -924,6 +1048,8 @@ def main(argv):
     parser.add_argument('--allow-dirty-target', action='store_true')
     parser.add_argument('--no-maintenance', action='store_true')
     args = parser.parse_args(argv)
+    if args.action == 'translations' and (args.scope or args.policy or args.automatic or args.all_sites or args.allow_dirty_target or args.no_maintenance):
+        parser.error('translations accepts one SITE and optional --skip-backup-check; do not supply scope, policy, automatic or overwrite options')
     if args.action == 'reinstall' and (not args.scope or not re.fullmatch(r'(plugin|theme):[a-z0-9][a-z0-9_-]*', args.scope) or args.policy or args.automatic or args.all_sites):
         parser.error('reinstall requires one --scope plugin:SLUG or theme:SLUG; do not use --policy or automatic mode')
     if args.action == 'run':
@@ -974,7 +1100,8 @@ def main(argv):
     for domain in domains:
         try:
             with operation_lock():
-                failed = apply(site(domain), args) or failed
+                operation = translations_only if args.action == 'translations' else apply
+                failed = operation(site(domain), args) or failed
         except Exception as exc:
             for line in diagnostic({'domain': domain, 'base': Path('/srv/sites') / domain}, f'FAIL {domain}: {exc}'):
                 print_status(line, sys.stderr)

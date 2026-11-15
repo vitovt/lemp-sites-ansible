@@ -186,6 +186,32 @@ subsequent download succeeds; failures retain the stage and private diagnostics.
 The chosen locale is passed explicitly to both core update and checksum
 verification. The updater installs the site's translation without `--activate`,
 updates installed core translations, and verifies that `WPLANG` is unchanged.
-A translation failure or unexpected language change prevents the commit. Package
+A translation failure produces a separate FAIL and excludes translation files
+from the verified core commit. An unexpected language change prevents the commit. Package
 language may differ from site language; an `en_US` package does not switch the
 site to English. No core reinstall support is introduced by this change.
+
+### Verify and repair core translations separately
+
+```sh
+wp-update translations example.com
+# Manual backup bypass, only if explicitly accepted:
+wp-update translations example.com --skip-backup-check
+```
+
+This repairs translations for the currently installed core even when there is no
+core update available. It requires an exact locale in the available language
+catalog and checks `wp language core is-installed LOCALE` after installation and
+again after updating translations. An exit-0 install that skipped an unknown
+locale is not sufficient. English uses built-in strings without a language pack.
+
+Core and translation results are reported separately. If translations fail while
+core version/checksums, permissions, health, scope and language guards pass, the
+verified core is committed without translation paths and the overall command
+returns FAIL. Partial translation files remain uncommitted for review. Translation
+repair refuses dirty translation paths; it commits only core translation files
+on success and does not update core, activate a locale, or alter WPLANG.
+
+An unknown WPLANG produces exact site commands. The `uk_UA` to `uk` suggestion is
+shown only if `uk` is available for the installed release; it is an explicit user
+migration, never an automatic alias. See [source-backed diagnosis and recovery](CORE_TRANSLATION_DIAGNOSIS.md).

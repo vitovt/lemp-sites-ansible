@@ -23,31 +23,35 @@ class CoreLocaleTests(unittest.TestCase):
             self.assertEqual(module.redact_diagnostic(private), '[REDACTED_URL]')
 
     def test_apply_uses_package_locale_and_never_activates_site_language(self):
-        for language_after in ('uk_UA', 'en_US'):
+        for language_after in ('uk', 'en_US'):
             with self.subTest(language_after=language_after), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
                 (base / 'conf').mkdir()
                 args = SimpleNamespace(scope='core', policy='minor', skip_backup_check=True,
                     automatic=False, no_maintenance=False, allow_dirty_target=False)
+                def wp_result(*args, **kwargs):
+                    if args[1:4] == ('language', 'core', 'list'):
+                        return SimpleNamespace(stdout='[{"language":"uk"}]', returncode=0)
+                    return SimpleNamespace(stdout='6.5.14', returncode=0)
                 with patch.object(module, 'inventory', return_value=[('core', 'core', '6.5.4', '6.5.14', ['wp-includes'])]), \
                      patch.object(module, 'policy', return_value={}), \
                      patch.object(module, 'git', return_value=SimpleNamespace(returncode=0)), \
                      patch.object(module, 'target_dirty', return_value=False), \
                      patch.object(module, 'file_state', return_value={}), \
-                     patch.object(module, 'prepare_core_package', return_value=('uk_UA', 'en_US')), \
+                     patch.object(module, 'prepare_core_package', return_value=('uk', 'en_US')), \
                      patch.object(module, 'core_language', return_value=language_after), \
-                     patch.object(module, 'wp', return_value=SimpleNamespace(stdout='6.5.14', returncode=0)) as wp, \
+                     patch.object(module, 'wp', side_effect=wp_result) as wp, \
                      patch.object(module, 'command', return_value=SimpleNamespace(stdout='200')), \
                      patch.object(module, 'translation_paths', return_value=[]), \
                      patch.object(module, 'commit_paths', return_value='commit') as commit, \
                      patch.object(module, 'report'), patch.object(module.subprocess, 'run'):
                     site = {'base': base, 'domain': 'allourworld.info'}
-                    self.assertEqual(module.apply(site, args), language_after != 'uk_UA')
+                    self.assertEqual(module.apply(site, args), language_after != 'uk')
                 wp.assert_any_call(site, 'core', 'update', '--version=6.5.14', '--locale=en_US')
                 wp.assert_any_call(site, 'core', 'verify-checksums', '--version=6.5.14', '--locale=en_US')
-                wp.assert_any_call(site, 'language', 'core', 'install', 'uk_UA')
+                wp.assert_any_call(site, 'language', 'core', 'install', 'uk')
                 self.assertFalse(any('--activate' in call.args for call in wp.call_args_list))
-                self.assertEqual(commit.called, language_after == 'uk_UA')
+                self.assertEqual(commit.called, language_after == 'uk')
                 self.assertFalse((base / 'conf/maintenance').exists())
 
     def test_localized_package_is_preferred(self):
