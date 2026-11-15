@@ -1,6 +1,7 @@
 #!/usr/bin/python3 -I
 """Work with one managed WordPress site and its local code policy."""
 import argparse
+import builtins
 import copy
 import json
 import os
@@ -32,17 +33,42 @@ A full allow-file command requires --yes after review. Omit fields to select
 them interactively. Site policy is local and is never written by Ansible.'''
 
 
+def terminal_text(text, color, stream):
+    if stream.isatty() and os.environ.get('TERM', 'dumb') != 'dumb' and 'NO_COLOR' not in os.environ:
+        return f'\033[{color}m{text}\033[0m'
+    return text
+
+
+def print(*values, **kwargs):
+    """Color human-readable output while preserving redirected and YAML output."""
+    stream = kwargs.get('file') or sys.stdout
+    text = kwargs.get('sep', ' ').join(str(value) for value in values)
+    lines = []
+    for line in text.split('\n'):
+        color = None
+        if line.startswith(('FAIL', 'Error:')):
+            color = '31'
+        elif line.startswith(('HINT', 'SKIP', 'WARNING', 'UNAVAILABLE')):
+            color = '33'
+        elif line.startswith(('PASS', 'ACCEPTED')):
+            color = '32'
+        elif line.startswith(('Usage:', 'KIND ')) or line == 'Examples:':
+            color = '1;36'
+        lines.append(terminal_text(line, color, stream) if color else line)
+    builtins.print('\n'.join(lines), **kwargs)
+
+
 def ask(label, choices=None):
     if not sys.stdin.isatty():
         raise ValueError('Missing ' + label + '; an interactive terminal is required')
     if choices:
         for index, choice in enumerate(choices, 1):
             print(f'  {index}. {choice}')
-        raw = input(label + ' (number): ').strip()
+        raw = input(terminal_text(label + ' (number): ', '1;36', sys.stdout)).strip()
         if not raw.isdigit() or not 1 <= int(raw) <= len(choices):
             raise ValueError('Invalid selection')
         return choices[int(raw) - 1]
-    value = input(label + ': ').strip()
+    value = input(terminal_text(label + ': ', '1;36', sys.stdout)).strip()
     if not value:
         raise ValueError(label + ' is required')
     return value
@@ -286,7 +312,11 @@ def parse(argv):
                     print(line, file=sys.stderr)
             print(summary)
             return int(summary.startswith('FAIL'))
-        return subprocess.run(['/usr/local/sbin/wp-monitor', '--check', s['domain']]).returncode
+        with subprocess.Popen(['/usr/local/sbin/wp-monitor', '--check', s['domain']],
+                              stdout=subprocess.PIPE, text=True) as monitor:
+            for line in monitor.stdout:
+                print(line, end='', flush=True)
+            return monitor.wait()
     return 0
 
 

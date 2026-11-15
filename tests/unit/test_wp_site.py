@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 import os
+import io
 from pathlib import Path
 import subprocess
 import sys
@@ -20,6 +21,43 @@ loader.exec_module(helper)
 
 
 class HelperTests(unittest.TestCase):
+    def test_general_check_colors_streamed_monitor_output(self):
+        from unittest.mock import MagicMock
+        output = io.StringIO()
+        output.isatty = lambda: True
+        monitor = MagicMock()
+        monitor.stdout = iter(['PASS example permissions\n', 'FAIL example http_home\n'])
+        monitor.wait.return_value = 1
+        process = MagicMock()
+        process.__enter__.return_value = monitor
+        with patch.object(helper, 'site', return_value={'domain': 'example.com'}), \
+             patch.object(helper, 'authorized'), \
+             patch.object(helper.subprocess, 'Popen', return_value=process), \
+             patch.object(helper.sys, 'stdout', output), \
+             patch.dict(os.environ, {'TERM': 'xterm'}, clear=True):
+            self.assertEqual(helper.parse(['check', 'example.com']), 1)
+        self.assertIn('\033[32mPASS example permissions', output.getvalue())
+        self.assertIn('\033[31mFAIL example http_home', output.getvalue())
+
+    def test_terminal_colors_follow_update_conventions(self):
+        for prefix, color in [('FAIL', '31'), ('PASS', '32'), ('ACCEPTED', '32'),
+                              ('UNAVAILABLE', '33'), ('Usage:', '1;36')]:
+            output = io.StringIO()
+            output.isatty = lambda: True
+            with patch.dict(os.environ, {'TERM': 'xterm'}, clear=True):
+                helper.print(prefix + ' example', file=output)
+            self.assertEqual(output.getvalue(), f'\033[{color}m{prefix} example\033[0m\n')
+
+    def test_plain_output_for_pipes_no_color_and_dumb_terminal(self):
+        for tty, env in [(False, {'TERM': 'xterm'}),
+                         (True, {'TERM': 'dumb'}),
+                         (True, {'TERM': 'xterm', 'NO_COLOR': ''})]:
+            output = io.StringIO()
+            output.isatty = lambda: tty
+            with patch.dict(os.environ, env, clear=True):
+                helper.print('FAIL example', file=output)
+            self.assertEqual(output.getvalue(), 'FAIL example\n')
+
     def test_runtime_checksum_command_uses_its_own_writable_cache(self):
         args = helper.wp_args({'base': Path('/srv/sites/one.example'), 'PHP_VERSION': '8.4'},
                               'plugin', 'verify-checksums', '--all')
