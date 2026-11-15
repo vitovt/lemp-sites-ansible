@@ -61,10 +61,12 @@ class TranslationTests(unittest.TestCase):
         paths = ['wp-includes', *module.translation_paths(self.site, 'core', 'core')]
         def wp(site, *args, **kwargs):
             if args[:2] == ('core', 'update'):
-                self.assertEqual(args, ('core', 'update', '--version=2'))
+                self.assertEqual(args, ('core', 'update', '--version=2', '--locale=en_US'))
                 mutate()
             return SimpleNamespace(stdout='2', returncode=0)
-        with patch.object(module, 'inventory', return_value=[('core', 'core', '1', '2', paths)]), \
+        with patch.object(module, 'prepare_core_package', return_value=('', 'en_US')), \
+             patch.object(module, 'core_language', return_value=''), \
+             patch.object(module, 'inventory', return_value=[('core', 'core', '1', '2', paths)]), \
              patch.object(module, 'policy', return_value={}), patch.object(module, 'wp', side_effect=wp), \
              patch.object(module, 'report') as report, patch.object(module.subprocess, 'run', wraps=subprocess.run):
             # Avoid notifications, while keeping real Git subprocesses.

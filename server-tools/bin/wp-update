@@ -602,6 +602,56 @@ def show_changelogs(entries, mode, site=None):
         print_status('WARNING changelog unavailable; update result is unchanged.', sys.stderr)
 
 
+def core_language(s):
+    value = json.loads(wp(s, 'eval', 'echo wp_json_encode(get_option("WPLANG", ""));').stdout)
+    if not isinstance(value, str) or (value and not re.fullmatch(r'[a-z]{2,3}(?:_[A-Za-z0-9]+)*(?:@[A-Za-z0-9]+)?', value)):
+        raise RuntimeError('Invalid site WPLANG; inspect wp option get WPLANG before retrying')
+    return value
+
+
+def core_package_url(version, locale):
+    if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', version):
+        raise RuntimeError('Invalid target core version')
+    if version.count('.') > 1 and version.endswith('.0'):
+        version = version[:-2]
+    prefix = '' if locale == 'en_US' else locale[:2] + '.'
+    suffix = '' if locale == 'en_US' else '-' + locale
+    return f'https://{prefix}wordpress.org/wordpress-{version}{suffix}.zip'
+
+
+def probe_core_package(s, url):
+    # Use the site's PHP/WordPress HTTP stack, just as the actual upgrade does.
+    code = ('$r=wp_remote_head(' + json.dumps(url) + ',array("timeout"=>30));'
+            'echo wp_json_encode(is_wp_error($r) ? array("status"=>0,"error"=>$r->get_error_message())'
+            ':array("status"=>wp_remote_retrieve_response_code($r),"error"=>wp_remote_retrieve_response_message($r)));')
+    result = json.loads(wp(s, 'eval', code).stdout)
+    if not isinstance(result, dict) or type(result.get('status')) is not int:
+        raise RuntimeError('Invalid package availability response')
+    return result
+
+
+def prepare_core_package(s, version, lines):
+    language = core_language(s)
+    locale = language or 'en_US'
+    url = core_package_url(version, locale)
+    response = probe_core_package(s, url)
+    status = response['status']
+    if status != 200:
+        reason = redact_diagnostic(str(response.get('error', '')))[:300]
+        lines.append(f'WARNING core package unavailable: locale={locale} HTTP={status} URL={url} reason={reason}')
+        # A network/TLS/server failure is not evidence of a missing translation.
+        if locale == 'en_US' or status not in (404, 410):
+            raise RuntimeError(f'Core package preflight failed: HTTP={status} URL={url}; inspect network/TLS/server availability; no update was started')
+        locale = 'en_US'
+        url = core_package_url(version, locale)
+        response = probe_core_package(s, url)
+        if response['status'] != 200:
+            raise RuntimeError(f'Fallback core package unavailable: HTTP={response["status"]} URL={url} reason={redact_diagnostic(str(response.get("error", "")))[:300]}; no update was started')
+        lines.append(f'WARNING Using en_US core package for {version}; site WPLANG remains {language}')
+    lines.append(f'PACKAGE core version={version} locale={locale} HTTP=200 site_language={language or "en_US (empty WPLANG)"} URL={url}')
+    return language, locale
+
+
 def component_hints(s, kind, name, action='apply'):
     target = f'wp-content/{kind}s/{name}'
     domain = s['domain']
@@ -746,9 +796,12 @@ def apply(s, args):
                     saved = preserve_target(s, kind, name)
                     lines.append('SAVED original component files: ' + saved)
                     lines.append('HINT List the saved original files: ' + shlex.join(['tar', '-tf', saved]))
+                if kind == 'core':
+                    stage = 'package-preflight'
+                    site_language, package_locale = prepare_core_package(s, new, lines)
                 command_args = [kind, 'update', name] if kind != 'core' else ['core', 'update']
                 if kind == 'core':
-                    command_args.append('--version=' + new)
+                    command_args.extend(['--version=' + new, '--locale=' + package_locale])
                 elif args.policy == 'minor':
                     command_args.append('--minor')
                 if verified_replacement:
@@ -768,7 +821,14 @@ def apply(s, args):
                     stage = 'update-db'
                     wp(s, 'core', 'update-db')
                     stage = 'checksums'
-                    wp(s, 'core', 'verify-checksums')
+                    wp(s, 'core', 'verify-checksums', '--version=' + new, '--locale=' + package_locale)
+                    stage = 'translations'
+                    if site_language and site_language != 'en_US':
+                        wp(s, 'language', 'core', 'install', site_language)
+                    wp(s, 'language', 'core', 'update')
+                    stage = 'verify-site-language'
+                    if core_language(s) != site_language:
+                        raise RuntimeError('Site WPLANG changed during core update; inspect wp option get WPLANG before retrying')
                 elif kind == 'plugin':
                     stage = 'checksums'
                     verify = wp(s, 'plugin', 'verify-checksums', name, '--strict', check=False)

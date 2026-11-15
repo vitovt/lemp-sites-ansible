@@ -171,3 +171,21 @@ An unwritable logs directory produces an explicit warning instead of hiding
 the original error. Core failures include site-specific inspection instructions;
 files or the database may already have changed. Diagnostic collection does not
 retry updates, bypass checks, or roll back files or the database.
+
+### Localized core package availability
+
+Before a core update, the updater reads site `WPLANG` and checks the exact HTTPS
+release URL that WP-CLI constructs for the selected version and locale. `PACKAGE`
+prints version, package locale, site language, and URL. For HTTP 404/410 on a
+localized package, it checks the same version's `en_US` package and explicitly
+logs the fallback. Network/TLS errors, 403, 429, 5xx, or unsupported HEAD requests
+stop the update instead of silently changing package locale. No `--force` or
+`--insecure` is added. A successful HEAD is a preflight, not a guarantee that the
+subsequent download succeeds; failures retain the stage and private diagnostics.
+
+The chosen locale is passed explicitly to both core update and checksum
+verification. The updater installs the site's translation without `--activate`,
+updates installed core translations, and verifies that `WPLANG` is unchanged.
+A translation failure or unexpected language change prevents the commit. Package
+language may differ from site language; an `en_US` package does not switch the
+site to English. No core reinstall support is introduced by this change.
