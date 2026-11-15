@@ -12,6 +12,10 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import tarfile
+import zipfile
+from urllib.request import urlopen
+from urllib.parse import urlsplit
 
 SHORT = """Usage: wp-update COMMAND [SITE] [OPTIONS]
 
@@ -20,6 +24,8 @@ Commands:
     wp-update plan example.com
   apply SITE    Update selected components of one site.
     wp-update apply example.com --scope core --policy minor
+  reinstall SITE Reinstall one plugin/theme at its current version.
+    wp-update reinstall example.com --scope plugin:akismet
   run           Automatically update all installed sites.
     wp-update run --automatic --all-sites
 
@@ -41,12 +47,12 @@ Policy:
 SAFETY = """Safety options (manual apply only):
   --skip-backup-check    Skip today's completed-backup check. No backup is created.
   --allow-dirty-target   Permit local edits in the update target to be overwritten.
-                        Do not automatically commit that target.
+                        Archive original files; commit only verified replacements.
   --no-maintenance      Do not enable the hosting maintenance gate.
 
 Without these options, apply requires today's completed site backup and a clean
 update target. Unrelated local changes are allowed and are not added to the commit.
-An uncertain failed update keeps its maintenance gate enabled.
+The hosting maintenance gate created by this run is removed on failure.
 No automatic rollback is performed."""
 CHANGELOG_HELP = """Changelog (plan, apply, and run):
   --changelog brief    Show up to five releases with short notes.
@@ -111,6 +117,16 @@ Examples:
   wp-update run --automatic --all-sites""",
 }
 MODE_HELP = {name: text + '\n\n' + CHANGELOG_HELP for name, text in MODE_HELP.items()}
+MODE_HELP['reinstall'] = """Usage: wp-update reinstall SITE --scope plugin:SLUG|theme:SLUG [OPTIONS]
+
+Reinstall the current version from WordPress.org, even without an update.
+One installed plugin or theme only. Holds apply. No --policy option.
+Dirty targets require --allow-dirty-target. Original files are archived privately.
+Exact official package comparison is required before committing a replacement.
+Private/unavailable packages fail without being replaced.
+
+""" + SAFETY
+
 HELP = SHORT + "\n\n" + "\n\n".join(MODE_HELP.values())
 
 
@@ -174,7 +190,7 @@ def error_hints(s, reason):
     if 'health check' in reason:
         return [f"Run {checks}; inspect Nginx and PHP-FPM service logs and the site error log.",
                 "Check the database and health socket /run/wp-hosting/health.sock. "
-                "Keep maintenance enabled until you review the failure."]
+                "Review the failure and site health before retrying."]
     if 'outside the selected component' in reason:
         return [inspect, "Review every unexpected path. Preserve evidence and compare with a trusted backup. "
                 "No automatic rollback is performed. Do not bulk-commit these files."]
@@ -226,12 +242,47 @@ class HelpParser(argparse.ArgumentParser):
         self.exit(2)
 
 
+class CommandFailure(RuntimeError):
+    """Keep subprocess output out of public summaries and syslog."""
+    def __init__(self, program, result):
+        super().__init__(f'{program} failed (exit {result.returncode})')
+        self.stdout = result.stdout or ''
+        self.stderr = result.stderr or ''
+
+
+def redact_diagnostic(text):
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+    text = re.sub(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]', '', text)
+    def safe_url(match):
+        url = match.group(0)
+        try:
+            parts = urlsplit(url)
+            official = parts.hostname in ('wordpress.org', 'downloads.wordpress.org', 'downloads.w.org') or bool(re.fullmatch(r'[a-z]{2}\.wordpress\.org', parts.hostname or ''))
+            if parts.scheme == 'https' and official and not (parts.username or parts.password or parts.query or parts.fragment) and parts.port in (None, 443):
+                return url
+        except ValueError:
+            pass
+        return '[REDACTED_URL]'
+    text = re.sub(r'https?://[^\s<>"\']+', safe_url, text)
+    text = re.sub(r'(?im)((?:password|passwd|pwd|token|secret|authorization|api[_-]?key|DB_PASSWORD)\s*[:=]\s*)[^\r\n]+', r'\1[REDACTED]', text)
+    return text[:65536]
+
+
+def save_failure_diagnostic(s, kind, name, stage, exc):
+    descriptor, filename = tempfile.mkstemp(prefix='wp-update-diagnostic-', suffix='.log', dir=s['base'] / 'logs')
+    with os.fdopen(descriptor, 'w') as output:
+        output.write(f'Component: {kind}:{name}\nStage: {stage}\n')
+        for label in ('stdout', 'stderr'):
+            output.write(label.upper() + ':\n' + redact_diagnostic(getattr(exc, label, '')) + '\n')
+    return filename
+
+
 def command(args, *, env=None, check=True):
     # Both timer and manual runs must create owner files without world access.
     # Set the child's mask explicitly instead of inheriting root's usual 0022.
     result = subprocess.run([str(x) for x in args], env=env, capture_output=True, text=True, umask=0o027)
     if check and result.returncode:
-        raise RuntimeError(f"{Path(args[0]).name} failed (exit {result.returncode})")
+        raise CommandFailure(Path(args[0]).name, result)
     return result
 
 
@@ -387,6 +438,14 @@ def inventory(s, scope, release, holds, log=None):
                 continue
             old, new = item['version'], item['update_version']
             if release == 'minor' and old.split('.')[0] != new.split('.')[0]:
+                message = f'SKIP {kind}:{name}: {old} -> {new} requires policy latest'
+                hints = component_hints(s, kind, name) if s.get('domain') else []
+                if log is not None:
+                    log.extend([message, *hints])
+                else:
+                    print_status(message)
+                    for hint in hints:
+                        print_status(hint)
                 continue
             result.append((kind, name, old, new, [f'wp-content/{kind}s/{name}', *translation_paths(s, kind, name)]))
     return result
@@ -543,11 +602,94 @@ def show_changelogs(entries, mode, site=None):
         print_status('WARNING changelog unavailable; update result is unchanged.', sys.stderr)
 
 
+def component_hints(s, kind, name, action='apply'):
+    target = f'wp-content/{kind}s/{name}'
+    domain = s['domain']
+    return [
+        'HINT Inspect installed component: ' + shlex.join(['wp-site', 'git', domain, 'ls-files', '--', target]),
+        *(['HINT Check WordPress.org file checksums: ' + shlex.join(['wp-site', 'check', domain, 'plugins', name])] if kind == 'plugin' else []),
+        'HINT Review tracked and untracked files: ' + shlex.join(['wp-site', 'git', domain, 'status', '--short', '--', target]),
+        'HINT Review staged and unstaged edits: ' + shlex.join(['wp-site', 'git', domain, 'diff', 'HEAD', '--', target]),
+        'HINT After review, replace local edits (original files will be archived): ' + shlex.join(
+            ['wp-update', action, domain, '--scope', f'{kind}:{name}',
+             *(['--policy', 'latest'] if action == 'apply' else []), '--allow-dirty-target']),
+    ]
+
+
+def preserve_target(s, kind, name):
+    target = s['base'] / 'htdocs' / f'wp-content/{kind}s/{name}'
+    # Refuse links anywhere in the tree rather than following them into secrets.
+    if target.is_symlink() or not target.is_dir():
+        raise RuntimeError('Target must be a regular directory without symbolic links')
+    for path in target.rglob('*'):
+        if path.is_symlink() or not (path.is_file() or path.is_dir()):
+            raise RuntimeError('Target contains a symbolic link or special file; inspect it before replacement')
+    for parent in [target, *target.parents]:
+        if parent.is_symlink():
+            raise RuntimeError('Target path contains a symbolic link')
+    directory = s['base'] / 'backup'
+    directory.mkdir(mode=0o700, exist_ok=True)
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+        raise RuntimeError('Recovery directory must be root-owned with mode 0700')
+    fd, name_on_disk = tempfile.mkstemp(prefix=f'wp-update-{kind}-{name}-', suffix='.tar', dir=directory)
+    os.close(fd)
+    with tarfile.open(name_on_disk, 'w') as archive:
+        archive.add(target, arcname=name, recursive=True)
+    return name_on_disk
+
+
+def release_manifest(kind, name, version):
+    if not re.fullmatch(r'[A-Za-z0-9._-]+', version):
+        raise RuntimeError('Invalid package version')
+    url = f'https://downloads.wordpress.org/{kind}/{name}.{version}.zip'
+    try:
+        with urlopen(url, timeout=60) as response, tempfile.TemporaryFile() as package:
+            if not response.geturl().startswith('https://downloads.wordpress.org/'):
+                raise RuntimeError('Package redirected outside the trusted download host')
+            package.write(response.read())
+            package.seek(0)
+            with zipfile.ZipFile(package) as archive:
+                manifest = {}
+                for member in archive.infolist():
+                    path = member.filename
+                    if not path.startswith(name + '/') or any(part in ('', '.', '..') for part in path.rstrip('/').split('/')):
+                        raise RuntimeError('Package contains an unsafe path')
+                    if stat.S_ISLNK(member.external_attr >> 16):
+                        raise RuntimeError('Package contains symbolic links')
+                    if not member.is_dir():
+                        relative = path[len(name) + 1:]
+                        if relative in manifest:
+                            raise RuntimeError('Package contains duplicate files')
+                        manifest[relative] = hashlib.sha256(archive.read(member)).hexdigest()
+                if not manifest:
+                    raise RuntimeError('Package is empty')
+                return manifest
+    except Exception as exc:
+        raise RuntimeError(f'Trusted WordPress.org package unavailable or invalid for {kind}:{name} version {version}; no verified replacement is possible') from exc
+
+
+def verify_manifest(s, kind, name, expected):
+    root = s['base'] / 'htdocs' / f'wp-content/{kind}s/{name}'
+    actual = {}
+    if root.is_symlink():
+        raise RuntimeError('Installed target is a symbolic link')
+    for path in root.rglob('*'):
+        if path.is_symlink() or not (path.is_file() or path.is_dir()):
+            raise RuntimeError('Installed target contains a symbolic link or special file')
+        if path.is_file():
+            actual[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != expected:
+        differences = sorted(key for key in actual.keys() | expected.keys() if actual.get(key) != expected.get(key))
+        raise RuntimeError('Installed files differ from the official package: ' + ', '.join(differences[:10]))
+
+
 def apply(s, args):
     lines = [f"START {s['domain']} {datetime.now().astimezone().isoformat()} scope={args.scope} policy={args.policy}"]
     failed = False
-    unsafe = False
     completed = []
+    pending = []
+    reinstall = getattr(args, 'action', 'apply') == 'reinstall'
     try:
         marker = s['base'] / 'conf/maintenance'
         if marker.exists():
@@ -560,10 +702,19 @@ def apply(s, args):
             raise RuntimeError('Git baseline is missing')
         if args.automatic and changed(s):
             raise RuntimeError('Git index or worktree is not clean')
-        entries = inventory(s, args.scope, args.policy, policy(s['domain']), lines)
+        if reinstall:
+            kind, name = args.scope.split(':', 1)
+            if name in policy(s['domain']).get(kind + 's', {}):
+                raise RuntimeError(f'{kind}:{name} is held; review wp-site policy {s["domain"]} before replacement')
+            old = wp(s, kind, 'get', name, '--field=version').stdout.strip()
+            entries = [(kind, name, old, old, [f'wp-content/{kind}s/{name}', *translation_paths(s, kind, name)])]
+        else:
+            entries = inventory(s, args.scope, args.policy, policy(s['domain']), lines)
+        pending = list(entries)
         if args.no_maintenance:
             lines.append('WARNING hosting maintenance gate disabled by operator')
         for kind, name, old, new, paths in entries:
+            pending.pop(0)
             if args.automatic and kind == 'plugin':
                 verified = wp(s, 'plugin', 'verify-checksums', name, '--strict', check=False)
                 if verified.returncode or not re.search(r'Verified 1 of 1 plugins', verified.stdout):
@@ -572,59 +723,119 @@ def apply(s, args):
             dirty = target_dirty(s, paths)
             if dirty and (args.automatic or not args.allow_dirty_target):
                 lines.append(f'SKIP {kind}:{name}: target has local changes')
+                lines.extend(component_hints(s, kind, name, 'reinstall' if reinstall else 'apply'))
                 failed = True
                 continue
             before = file_state(s)
             if not args.no_maintenance and not marker.exists():
                 marker.write_text('managed update\n')
-                marker.chmod(0o644)
                 owned_marker = True
             else:
                 owned_marker = False
+            stage = 'prepare'
             try:
+                if owned_marker:
+                    marker.chmod(0o644)
+                verified_replacement = kind != 'core' and (dirty or reinstall)
+                manifest = release_manifest(kind, name, new) if verified_replacement else None
+                if verified_replacement:
+                    translations = [path for path in paths if path.startswith('wp-content/languages/')]
+                    if translations and target_dirty(s, translations):
+                        raise RuntimeError('Translation files have local changes; save and review them before replacing this component')
+                    previous_status = wp(s, kind, 'get', name, '--field=status').stdout.strip()
+                    saved = preserve_target(s, kind, name)
+                    lines.append('SAVED original component files: ' + saved)
+                    lines.append('HINT List the saved original files: ' + shlex.join(['tar', '-tf', saved]))
                 command_args = [kind, 'update', name] if kind != 'core' else ['core', 'update']
                 if kind == 'core':
                     command_args.append('--version=' + new)
                 elif args.policy == 'minor':
                     command_args.append('--minor')
+                if verified_replacement:
+                    command_args = [kind, 'install', name, '--version=' + new, '--force']
+                stage = 'install' if verified_replacement else 'update'
                 wp(s, *command_args)
+                stage = 'verify-package'
+                if verified_replacement:
+                    verify_manifest(s, kind, name, manifest)
+                    if wp(s, kind, 'get', name, '--field=status').stdout.strip() != previous_status:
+                        raise RuntimeError('Component activation status changed; inspect it before retrying')
+                stage = 'verify-version'
                 got = wp(s, kind, 'get', name, '--field=version').stdout.strip() if kind != 'core' else wp(s, 'core', 'version').stdout.strip()
                 if got != new:
                     raise RuntimeError(f'{kind}:{name} expected {new}, got {got}')
                 if kind == 'core':
+                    stage = 'update-db'
                     wp(s, 'core', 'update-db')
+                    stage = 'checksums'
                     wp(s, 'core', 'verify-checksums')
                 elif kind == 'plugin':
+                    stage = 'checksums'
                     verify = wp(s, 'plugin', 'verify-checksums', name, '--strict', check=False)
-                    if verify.returncode and args.automatic:
-                        raise RuntimeError('Plugin checksum verification failed')
+                    if verify.returncode:
+                        raise CommandFailure('Plugin checksum verification', verify)
+                stage = 'permissions'
                 command(['/usr/local/sbin/site-fix-perms', s['domain']])
+                stage = 'health'
                 health = command(['curl', '--noproxy', '*', '-sk', '--max-time', '20', '-o', '/dev/null', '-w', '%{http_code}',
                     '--unix-socket', '/run/wp-hosting/health.sock', '-H', 'X-WP-Health: 1',
                     'https://' + s['domain'] + '/?wp-update-health=1']).stdout
                 if health != '200':
                     raise RuntimeError('Uncached health check failed')
                 paths = list(dict.fromkeys([*paths, *translation_paths(s, kind, name)]))
+                stage = 'scope-check'
                 after = file_state(s)
                 outside = [path for path in changed_paths(before, after) if not in_scope(path, paths)]
                 if outside:
                     raise RuntimeError('Update changed paths outside the selected component: ' + ', '.join(repr(path) for path in outside))
-                commit = None if dirty else commit_paths(s, paths, f'Update {kind}:{name} {old} to {new}')
+                stage = 'commit'
+                commit = None if dirty and not verified_replacement else commit_paths(s, paths, f'{"Reinstall" if reinstall else "Update"} {kind}:{name} {old} to {new}')
                 lines.append(f'PASS {kind}:{name} {old} -> {new} commit={commit or "none"}')
                 completed.append((kind, name, old, new))
             except Exception as exc:
-                lines.append(f'FAIL {kind}:{name}: {exc}')
+                lines.append(f'FAIL {kind}:{name}: stage={stage}: {exc}')
+                if isinstance(exc, CommandFailure):
+                    try:
+                        diagnostic_path = save_failure_diagnostic(s, kind, name, stage, exc)
+                        lines.append('HINT Read private subprocess diagnostics as root: ' + shlex.join(['cat', '--', diagnostic_path]))
+                    except OSError:
+                        lines.append('WARNING Could not save subprocess diagnostics; check the site logs directory permissions and free space')
+                if kind == 'core':
+                    lines.append('HINT Core files or database may already have changed; no automatic rollback was performed.')
+                    lines.append('HINT Enter this site to inspect the installed core: ' + shlex.join(['jump-in', s['domain']]))
+                    lines.append('HINT Inside that shell run: wp core version --extra; wp core verify-checksums; git status --short; git diff HEAD --stat')
+                    if stage == 'update-db':
+                        lines.append('HINT Failed command was wp core update-db. Review the private diagnostic before retrying this database-changing command.')
+                lines.extend(component_hints(s, kind, name, 'reinstall' if reinstall else 'apply') if kind != 'core' else [])
                 failed = True
-                unsafe = True
                 break
             finally:
-                if owned_marker and not unsafe:
+                if owned_marker:
                     marker.unlink(missing_ok=True)
         if not entries:
-            lines.append('PASS no eligible updates')
+            if args.scope.startswith(('plugin:', 'theme:')) and not any(line.startswith('SKIP ') for line in lines):
+                kind, name = args.scope.split(':', 1)
+                lines.append('PASS no eligible update; this does not verify installed file integrity')
+                lines.append('HINT To reinstall the currently installed version: ' + shlex.join(['wp-update', 'reinstall', s['domain'], '--scope', args.scope]))
+            else:
+                lines.append('PASS no eligible updates')
     except Exception as exc:
         lines.append(f'FAIL {exc}')
         failed = True
+    for kind, name, *_ in pending:
+        lines.append(f'SKIP {kind}:{name}: not attempted after an earlier failure')
+    attention = [line for line in lines if line.startswith(('SKIP ', 'FAIL '))]
+    lines.append(f'SUMMARY completed={len(completed)} needs_attention={len(attention)}')
+    if attention:
+        lines.append('NEEDS ATTENTION (not updated):')
+        for line in attention:
+            lines.append('  ' + line)
+            match = re.match(r'(?:SKIP|FAIL) (plugin|theme):([a-z0-9_-]+):', line)
+            if match and 'held:' in line:
+                lines.append('HINT Review the local hold: ' + shlex.join(['wp-site', 'policy', 'show', s['domain'], '--yaml']))
+                lines.append('HINT Only after review, remove this hold: ' + shlex.join(['wp-site', 'policy', 'unhold', s['domain'], match.group(2), '--kind', match.group(1)]))
+            elif match:
+                lines.extend(component_hints(s, *match.groups(), 'reinstall' if reinstall else 'apply'))
     lines.append('FAIL' if failed else 'PASS')
     report(s, lines)
     show_changelogs(completed, getattr(args, 'changelog', 'none'), s)
@@ -642,7 +853,7 @@ def main(argv):
         print_help_text(MODE_HELP[mode] if mode else HELP)
         return 0
     parser = HelpParser(add_help=False)
-    parser.add_argument('action', choices=['plan', 'apply', 'run'])
+    parser.add_argument('action', choices=['plan', 'apply', 'reinstall', 'run'])
     parser.add_argument('domain', nargs='?')
     parser.add_argument('--scope')
     parser.add_argument('--policy', choices=['minor', 'latest'])
@@ -653,6 +864,8 @@ def main(argv):
     parser.add_argument('--allow-dirty-target', action='store_true')
     parser.add_argument('--no-maintenance', action='store_true')
     args = parser.parse_args(argv)
+    if args.action == 'reinstall' and (not args.scope or not re.fullmatch(r'(plugin|theme):[a-z0-9][a-z0-9_-]*', args.scope) or args.policy or args.automatic or args.all_sites):
+        parser.error('reinstall requires one --scope plugin:SLUG or theme:SLUG; do not use --policy or automatic mode')
     if args.action == 'run':
         if args.domain or not args.automatic or not args.all_sites or args.skip_backup_check or args.allow_dirty_target or args.no_maintenance:
             parser.error('run requires --automatic --all-sites')

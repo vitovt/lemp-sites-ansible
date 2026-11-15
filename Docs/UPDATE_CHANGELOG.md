@@ -56,7 +56,7 @@ Reports use `wp-update-changelog-*.complete.txt` and mode `0600`. They are
 outside `htdocs` and are not added to Git. `plan` does not write reports.
 Fetch and write failures cannot turn a successful update into a failed update.
 Notes are requested after component processing. A successful run removes its
-maintenance gate before requesting notes. A failed run keeps its safety state.
+maintenance gate before requesting notes. A failed run also removes the hosting maintenance gate created by that run.
 An unsuccessful component is not described as successfully updated.
 
 Release-note text is not sent to Telegram or syslog. Existing update status

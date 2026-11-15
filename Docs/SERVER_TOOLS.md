@@ -114,3 +114,60 @@ wp-update apply example.com --scope themes --policy minor
 ```
 
 Local holds and standard backup, Git, and health checks still apply.
+
+## Replace or reinstall one plugin or theme
+
+`--allow-dirty-target` permits replacement of local edits in the selected update
+target. It does not select a component without an available update. Use
+`reinstall` to restore the currently installed version instead:
+
+```sh
+wp-site git example.com status --short -- wp-content/plugins/demo
+wp-site git example.com diff HEAD -- wp-content/plugins/demo
+wp-update apply example.com --scope plugin:demo --policy latest --allow-dirty-target
+wp-update reinstall example.com --scope plugin:demo --allow-dirty-target
+wp-update reinstall example.com --scope theme:demo --allow-dirty-target
+```
+
+Both operations normally require today's completed backup. `--skip-backup-check`
+skips that requirement but does not skip the component recovery archive.
+Replacement archives are private tar files under `/srv/sites/SITE/backup/`;
+`SAVED` prints the exact path. They contain the original component files,
+including untracked files, but are not a full site/database backup. Preserve
+these archives until you have reviewed the result. They may contain sensitive data.
+
+For dirty replacements and reinstalls, an exact WordPress.org release package
+must be available. Original files are archived before installation. The installed
+tree must match the official package exactly, without extra files or symlinks.
+Plugin WordPress.org strict checksums must pass; themes use package comparison.
+The comparison proves agreement with the downloaded WordPress.org package, not
+an independent signature of the theme author. Private/unavailable releases are
+refused. Component activation status must remain unchanged. Locally modified
+translation files must be reviewed and saved separately before replacement.
+
+After permissions, health, and scope checks pass, verified replacements are
+committed even if the original component was dirty. Unrelated staged changes
+are excluded. A replacement matching HEAD needs no new commit. Verification
+failure means no automatic commit; files may already have changed. There is no
+automatic rollback. The maintenance gate created by this run is removed.
+
+Batch runs end with `SUMMARY` and `NEEDS ATTENTION`, listing held components,
+versions outside the selected policy, dirty targets, failures, and components
+not attempted after an earlier failure. Review commands and targeted retry
+commands contain the actual domain and slug. Retry commands require a backup
+by default; a previous backup bypass is not copied into suggestions.
+
+### Diagnose a failed update stage
+
+Failures identify the stage (`update`, `install`, `verify-version`, `update-db`,
+`checksums`, `permissions`, `health`, `scope-check`, or `commit`). Failed checked
+subprocess commands write stdout and stderr to a separate mode-0600
+`logs/wp-update-diagnostic-*.log`; the report prints the exact root `cat` command.
+Raw output is not copied to terminal summaries, Telegram, or syslog. Non-public or credential-bearing URLs,
+common credential assignments, terminal escapes, and control characters are
+redacted; each stream is limited to 64 KiB. Review diagnostics before sharing:
+arbitrary application output can contain other sensitive information.
+An unwritable logs directory produces an explicit warning instead of hiding
+the original error. Core failures include site-specific inspection instructions;
+files or the database may already have changed. Diagnostic collection does not
+retry updates, bypass checks, or roll back files or the database.

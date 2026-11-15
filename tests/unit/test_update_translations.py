@@ -118,7 +118,7 @@ class TranslationTests(unittest.TestCase):
         self.assertTrue(failed)
         self.assertIn("outside the selected component: 'outside.txt'", report)
         self.assertEqual(self.git('rev-parse', 'HEAD'), head)
-        self.assertTrue((self.base / 'conf/maintenance').exists())
+        self.assertFalse((self.base / 'conf/maintenance').exists())
 
     def test_language_paths_are_limited_to_component_and_pack_formats(self):
         paths = ['wp-content/languages/admin-network-de_DE_formal.mo',

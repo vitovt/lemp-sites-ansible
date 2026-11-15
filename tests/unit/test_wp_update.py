@@ -68,6 +68,33 @@ class InterfaceTests(unittest.TestCase):
                  patch.object(module, 'report'):
                 self.assertFalse(module.apply(site, args))
 
+    def test_failed_update_removes_only_its_own_maintenance_gate(self):
+        args = SimpleNamespace(scope='core', policy='minor', skip_backup_check=True,
+                               automatic=False, no_maintenance=False, allow_dirty_target=False)
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                (base / 'conf').mkdir()
+                marker = base / 'conf/maintenance'
+                if existing:
+                    marker.write_text('operator maintenance\n')
+                def fail_update(*args, **kwargs):
+                    self.assertTrue(marker.exists())
+                    raise RuntimeError('runuser failed (exit 1)')
+                with patch.object(module, 'git', return_value=SimpleNamespace(returncode=0)), \
+                     patch.object(module, 'inventory', return_value=[('core', 'core', '6.1', '6.1.1', ['wp-admin'])]), \
+                     patch.object(module, 'policy', return_value={}), \
+                     patch.object(module, 'target_dirty', return_value=False), \
+                     patch.object(module, 'file_state', return_value={}), \
+                     patch.object(module, 'wp', side_effect=fail_update) as wp, \
+                     patch.object(module, 'report'), \
+                     patch.object(module.subprocess, 'run'):
+                    self.assertTrue(module.apply({'base': base, 'domain': 'example.com'}, args))
+                self.assertEqual(marker.exists(), existing)
+                if existing:
+                    wp.assert_not_called()
+                    self.assertEqual(marker.read_text(), 'operator maintenance\n')
+
     def test_backup_refusal_is_visible_and_does_not_run_updates(self):
         args = SimpleNamespace(scope='core', policy='minor', skip_backup_check=False)
         with tempfile.TemporaryDirectory() as directory:

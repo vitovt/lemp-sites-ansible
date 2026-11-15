@@ -182,9 +182,11 @@ the managed server. See [Work With Site Code](SITE_CODE_POLICY.md).
 
 For a manual run, use `--skip-backup-check` only when you accept that risk.
 The updater stages only the updated component. A dirty target needs
-`--allow-dirty-target` and stays uncommitted. `--no-maintenance` is manual only.
+`--allow-dirty-target`. Verified plugin/theme replacements are committed after
+archiving the original files; dirty core targets stay uncommitted. `--no-maintenance` is manual only.
 Run `wp-update --help` for examples. On failure, read the site update log and
-the alert. There is no automatic rollback. Use the separate restore procedure.
+the alert. The updater removes its own hosting maintenance gate even when an update fails.
+A gate present before the run is preserved. There is no automatic rollback. Use the separate restore procedure.
 Existing sites keep their Git repository and `.gitignore`. A backup made before
 this version has no completion marker for the updater. Run the standard backup
 once before the next scheduled update, or wait for the next nightly backup.

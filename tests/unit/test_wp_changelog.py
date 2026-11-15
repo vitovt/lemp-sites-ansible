@@ -148,10 +148,7 @@ class UpdaterTests(unittest.TestCase):
                 def display(entries, mode, target):
                     args_seen.append(entries)
                     self.assertEqual(mode, 'full')
-                    if success:
-                        self.assertFalse((base / 'conf/maintenance').exists())
-                    else:
-                        self.assertTrue((base / 'conf/maintenance').exists())
+                    self.assertFalse((base / 'conf/maintenance').exists())
                 with patch.object(updater, 'git', return_value=SimpleNamespace(returncode=0)), \
                         patch.object(updater, 'inventory', return_value=[(*ENTRY, ['wp-content/plugins/fixture-plugin'])]), \
                         patch.object(updater, 'policy', return_value={}), \
