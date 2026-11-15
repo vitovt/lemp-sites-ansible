@@ -188,6 +188,66 @@ scripts/lemp my-server site
 scripts/lemp my-server verify
 ```
 
+### Run selected roles with Ansible tags
+
+Run from the repository root. These examples target `125-wp-lnmp`; replace
+both inventory path and host limit for another server. `scripts/lemp` does not
+currently accept `--tags`, so invoke `ansible-playbook` directly.
+
+| Tag | What it configures |
+|---|---|
+| `preflight` | Initial configuration and prerequisite checks |
+| `common` | Base system settings |
+| `server_tools` | Server utilities (`wp-site`, `wp-update`, `wp-monitor`) and their libraries |
+| `telegram_alert` | Telegram alerts |
+| `nginx` | Nginx |
+| `firewall` | Firewall rules |
+| `php` | PHP and PHP-FPM |
+| `mariadb` | MariaDB |
+| `valkey` | Valkey |
+| `site` | Site directories, permissions, and configuration |
+| `certbot_cloudflare` | TLS certificates through Cloudflare |
+| `backup_restic` | Restic backups |
+| `wp_monitor` | Monitoring configuration, service, and timer |
+| `maintenance` | WordPress automatic-update service and timer |
+
+`preflight`, `server_tools`, and loading the site list also have the `always`
+tag. They run even when another tag is selected. Fact gathering also runs.
+Selecting `server_tools` alone skips site provisioning and the full site checks.
+
+Select several roles with comma-separated tags. This command installs the
+utilities and configures the automatic-update service and timer:
+
+```sh
+ansible-playbook \
+  -i inventories/125-wp-lnmp/settings.yml \
+  playbooks/site.yml \
+  --limit 125-wp-lnmp \
+  --tags server_tools,maintenance
+```
+
+List the playbook's current tags without applying changes:
+
+```sh
+ansible-playbook \
+  -i inventories/125-wp-lnmp/settings.yml \
+  playbooks/site.yml \
+  --limit 125-wp-lnmp \
+  --list-tags
+```
+
+List the tasks selected for a utilities-only update without executing them.
+The output also includes tasks selected by `always`:
+
+```sh
+ansible-playbook \
+  -i inventories/125-wp-lnmp/settings.yml \
+  playbooks/site.yml \
+  --limit 125-wp-lnmp \
+  --tags server_tools \
+  --list-tasks
+```
+
 ## 4. Add a site
 
 - [ ] Check DNS and the certificate token.
