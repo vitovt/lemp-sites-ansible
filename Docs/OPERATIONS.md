@@ -288,3 +288,11 @@ cutover, rollback, and repeat runs. Service commands are stubbed in local tests.
 Live validation on disposable server 241 passed on 2026-11-08. It covered PHP
 transitions, repeat convergence, and an intentional interruption after a new
 PHP branch was installed. No changes were made to server 125.
+
+## PHP route lock contention
+
+WP-Cron takes a shared `/run/lock/wp-hosting.lock` while running due events.
+Route switching needs the exclusive lock and waits up to
+`site_operation_lock_timeout` seconds (default 120). On timeout no route changes
+are started; the error supplies `lslocks` and `fuser` diagnostics. Wait for the
+holder and retry. Never remove the lock file to bypass an active operation.

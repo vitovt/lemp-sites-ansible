@@ -25,6 +25,20 @@ LOCK_PATH = Path('/run/lock/wp-hosting.lock')
 HEALTH_SOCKET = Path('/run/wp-hosting/health.sock')
 
 
+def acquire_lock(handle, timeout):
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError as exc:
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f'Another site operation holds /run/lock/wp-hosting.lock after waiting {timeout}s. '
+                                   'On the server run: lslocks -o PID,COMMAND,TYPE,MODE,PATH; '
+                                   'fuser -v /run/lock/wp-hosting.lock. Wait for it to finish and retry; do not delete the lock.') from exc
+            time.sleep(0.2)
+
+
 def run(argv, *, env=None):
     result = subprocess.run(argv, env=env, capture_output=True, text=True)
     if result.returncode:
@@ -116,7 +130,7 @@ def nginx_probe(domain, site):
         raise RuntimeError(f'WordPress health request returned HTTP {status}')
 
 
-def converge(domain, user, version, site, pool_content, vhost_content, env_content):
+def converge(domain, user, version, site, pool_content, vhost_content, env_content, lock_timeout=120):
     if not DOMAIN.fullmatch(domain) or not USER.fullmatch(user) or not VERSION.fullmatch(version):
         raise ValueError('Invalid site name, user, or PHP branch')
     site = Path(site)
@@ -138,10 +152,7 @@ def converge(domain, user, version, site, pool_content, vhost_content, env_conte
         info = os.fstat(handle.fileno())
         if info.st_uid != os.geteuid() or info.st_nlink != 1:
             raise RuntimeError('Unsafe shared operation lock')
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RuntimeError('Another site operation holds the shared lock') from exc
+        acquire_lock(handle, lock_timeout)
         old_pool = current(pool)
         old_vhost = current(vhost)
         old_env = current(site_env)
@@ -223,7 +234,7 @@ def main():
         domain=dict(type='str', required=True), user=dict(type='str', required=True),
         version=dict(type='str', required=True), site=dict(type='path', required=True),
         pool_content=dict(type='str', required=True), vhost_content=dict(type='str', required=True),
-        env_content=dict(type='str', required=True)), supports_check_mode=False)
+        env_content=dict(type='str', required=True), lock_timeout=dict(type='int', default=120)), supports_check_mode=False)
     try:
         changed = converge(**{key: module.params[key] for key in module.params})
     except Exception as exc:

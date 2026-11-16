@@ -51,3 +51,6 @@ site_wp_salt_names: [AUTH_KEY, SECURE_AUTH_KEY, LOGGED_IN_KEY, NONCE_KEY, AUTH_S
 
 # CLI switch for tasks/install.yml (only together with wp_site_only).
 site_wp_install: false
+
+# Wait for short WP-Cron shared locks before switching a route (seconds).
+site_operation_lock_timeout: 120

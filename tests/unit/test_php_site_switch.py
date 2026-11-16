@@ -12,6 +12,18 @@ import php_site_switch as switch
 
 
 class PHPSiteSwitchTests(unittest.TestCase):
+    def test_lock_waits_for_a_short_operation(self):
+        with mock.patch.object(switch.fcntl, 'flock', side_effect=[BlockingIOError(), None]) as lock, \
+             mock.patch.object(switch.time, 'sleep'):
+            switch.acquire_lock(1, 2)
+        self.assertEqual(lock.call_count, 2)
+
+    def test_lock_timeout_provides_safe_diagnostics(self):
+        with mock.patch.object(switch.fcntl, 'flock', side_effect=BlockingIOError()), \
+             mock.patch.object(switch.time, 'monotonic', side_effect=[0, 2]):
+            with self.assertRaisesRegex(RuntimeError, 'fuser -v'):
+                switch.acquire_lock(1, 1)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

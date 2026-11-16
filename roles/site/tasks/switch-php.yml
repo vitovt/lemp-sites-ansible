@@ -17,3 +17,4 @@
     pool_content: "{{ lookup('ansible.builtin.template', 'pool.conf.j2') }}"
     vhost_content: "{{ lookup('ansible.builtin.template', 'vhost.conf.j2') }}"
     env_content: "{{ lookup('ansible.builtin.template', 'site.env.j2') }}"
+    lock_timeout: "{{ site_operation_lock_timeout }}"
