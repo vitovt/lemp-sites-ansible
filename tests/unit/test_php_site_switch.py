@@ -82,6 +82,39 @@ class PHPSiteSwitchTests(unittest.TestCase):
         self.assertIn(mock.call(['systemctl', 'disable', '--now', 'php8.3-fpm']),
                       self.commands.call_args_list)
 
+    def test_pool_only_reload_leaves_nginx_and_env_untouched(self):
+        switch.converge(*self.args)
+        before = (self.vhost.stat().st_mtime_ns, self.env.stat().st_mtime_ns)
+        self.commands.reset_mock()
+        args = (*self.args[:4], 'larger pool', *self.args[5:])
+        self.assertTrue(switch.converge(*args))
+        self.assertIn(mock.call(['php-fpm8.4', '-t']), self.commands.call_args_list)
+        self.assertIn(mock.call(['systemctl', 'reload', 'php8.4-fpm']), self.commands.call_args_list)
+        self.assertFalse(any('nginx' in call.args[0] for call in self.commands.call_args_list))
+        self.assertEqual(before, (self.vhost.stat().st_mtime_ns, self.env.stat().st_mtime_ns))
+        self.commands.reset_mock()
+        self.assertFalse(switch.converge(*args))
+        self.commands.assert_not_called()
+
+    def test_pool_only_failure_restores_pool_without_nginx_commands(self):
+        switch.converge(*self.args)
+        self.commands.reset_mock()
+        self.commands.side_effect = [RuntimeError('invalid pool'), '']
+        args = (*self.args[:4], 'invalid pool', *self.args[5:])
+        with self.assertRaisesRegex(RuntimeError, 'invalid pool'):
+            switch.converge(*args)
+        self.assertFalse(any('nginx' in call.args[0] for call in self.commands.call_args_list))
+        self.assertEqual((switch.PHP_ROOT / '8.4/fpm/pool.d/first-wp.conf').read_text(), 'new pool')
+
+    def test_existing_marker_rechecks_nginx_even_with_unchanged_files(self):
+        switch.converge(*self.args)
+        (self.site / 'conf/php-switch.json').write_text(
+            '{"domain":"first.example","version":"8.4","old_versions":[]}')
+        self.commands.reset_mock()
+        self.assertTrue(switch.converge(*self.args))
+        self.assertIn(mock.call(['nginx', '-t', '-q']), self.commands.call_args_list)
+        self.assertIn(mock.call(['systemctl', 'reload', 'nginx']), self.commands.call_args_list)
+
     def test_stopped_fpm_is_restarted_on_repeat(self):
         self.assertTrue(switch.converge(*self.args))
         self.service_ready.return_value = False

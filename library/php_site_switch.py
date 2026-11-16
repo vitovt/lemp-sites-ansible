@@ -178,7 +178,9 @@ def converge(domain, user, version, site, pool_content, vhost_content, env_conte
             return False
         replace(marker, json.dumps({'domain': domain, 'version': version,
                                     'old_versions': sorted(pending_versions)}).encode(), 0o600)
+        nginx_changed = old_vhost != wanted_vhost or not old_link or old_marker is not None
         switched = False
+        route_touched = False
         try:
             if old_pool != wanted_pool:
                 replace(pool, wanted_pool)
@@ -188,27 +190,31 @@ def converge(domain, user, version, site, pool_content, vhost_content, env_conte
                 run(['systemctl', 'reload', f'php{version}-fpm'])
             wait_for_php(socket, user, version, site)
             if old_vhost != wanted_vhost:
+                route_touched = True
                 replace(vhost, wanted_vhost)
             if not old_link:
+                route_touched = True
                 link.symlink_to(vhost)
-            run(['nginx', '-t', '-q'])
-            if old_vhost != wanted_vhost or not old_link or marker.exists():
+            if nginx_changed:
+                run(['nginx', '-t', '-q'])
+                switched = True
                 run(['systemctl', 'reload', 'nginx'])
-            switched = True
             nginx_probe(domain, site)
             if old_env != wanted_env:
                 replace(site_env, wanted_env)
         except Exception:
             # Keep the old pool until the old route is restored and tested.
-            restore(vhost, old_vhost)
-            if not old_link:
-                link.unlink(missing_ok=True)
-            run(['nginx', '-t', '-q'])
-            if switched or old_vhost != wanted_vhost:
-                run(['systemctl', 'reload', 'nginx'])
-                if old_vhost is not None:
-                    nginx_probe(domain, site)
-            restore(site_env, old_env)
+            if route_touched or switched:
+                restore(vhost, old_vhost)
+                if not old_link:
+                    link.unlink(missing_ok=True)
+                run(['nginx', '-t', '-q'])
+                if switched:
+                    run(['systemctl', 'reload', 'nginx'])
+                    if old_vhost is not None:
+                        nginx_probe(domain, site)
+            if current(site_env) != old_env:
+                restore(site_env, old_env)
             restore(pool, old_pool)
             if old_pool is None and not list(pool.parent.glob('*.conf')):
                 run(['systemctl', 'disable', '--now', f'php{version}-fpm'])
