@@ -328,7 +328,8 @@ Each partial layer overrides the previous layer: built-in defaults, server
 `php_fpm_defaults`, legacy `site_defaults.pm_*`, site `php_fpm`, and site
 `pm_*`. The legacy names remain supported. Do not set a nested field and its
 legacy name on the same site. Do not replace `site_defaults` to tune a server;
-use `php_fpm_defaults` instead.
+use `php_fpm_defaults` instead. The built-in legacy defaults use `null` to
+inherit the resolved server values. Explicit legacy values still override them.
 
 ## 6. Make a backup outside the schedule
 

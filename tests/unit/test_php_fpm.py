@@ -54,6 +54,9 @@ class PHPFPMTests(unittest.TestCase):
             self.assertTrue(validate({}, cap=cap))
         self.assertTrue(validate({}, worker_est=0))
         self.assertTrue(validate({}, legacy_defaults={'pm_max_requests': -1}))
+        self.assertTrue(validate({}, {'pm': 'dynamic'}, {'pm_idle_timeout': '30s'}))
+        self.assertEqual(resolve({}, {'max_children': 8}, {'pm_max_children': None})['max_children'], 8)
+        self.assertTrue(validate({'first.example': {'pm_max_children': '8'}}))
 
     def test_valid_modes_and_timeouts(self):
         for timeout in (0, 30, '30', '30s', '1m', '1h', '1d'):
@@ -116,6 +119,31 @@ class PHPFPMTests(unittest.TestCase):
             result = self.run_tasks(variables, tasks + [{'ansible.builtin.assert': {'that': [
                 f'site_cfg.php_fpm.max_children == {expected}',
                 'site_cfg.php_fpm.max_requests == 500', "site_cfg.php_fpm.process_idle_timeout == '30s'"]}}])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_preflight_preserves_default_types_on_system_ansible(self):
+        # The system Ansible can template filter arguments differently from the venv.
+        binary = Path('/usr/bin/ansible-playbook')
+        if not binary.exists():
+            self.skipTest('System Ansible is not installed')
+        defaults = yaml.safe_load((ROOT / 'roles/site/defaults/main.yml').read_text())
+        preflight = yaml.safe_load((ROOT / 'roles/preflight/defaults/main.yml').read_text())
+        tasks = yaml.safe_load((ROOT / 'roles/preflight/tasks/main.yml').read_text())[:2]
+        tasks += yaml.safe_load((ROOT / 'roles/site/tasks/config.yml').read_text())
+        tasks += [{'ansible.builtin.assert': {'that': [
+            'site_cfg.php_fpm.max_children == 10', 'site_cfg.php_fpm.max_requests == 500']}}]
+        variables = dict(defaults, **preflight,
+            php_fpm_defaults={'pm': 'ondemand', 'max_children': 4,
+                              'process_idle_timeout': '30s', 'max_requests': 500},
+            wp_sites={'first.example': {'php_version': '8.4', 'php_fpm': {'max_children': 10}}},
+            site_item={'key': 'first.example', 'value': {'php_version': '8.4', 'php_fpm': {'max_children': 10}}})
+        with tempfile.TemporaryDirectory() as directory:
+            # Select the actual system binary without changing the test runner Python.
+            wrapper = Path(directory) / 'ansible-playbook'
+            wrapper.symlink_to(binary)
+            from unittest import mock
+            with mock.patch.dict(os.environ, {'PATH': directory + os.pathsep + os.environ['PATH']}):
+                result = self.run_tasks(variables, tasks)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_memory_warning_is_advisory(self):

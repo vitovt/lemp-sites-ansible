@@ -11,10 +11,10 @@ site_defaults:
   xmlrpc: false
   # Table prefix for a NEW wp-config.php only.
   table_prefix: wp_
-  # Legacy pool names. Server defaults remain effective when no site override exists.
-  pm_max_children: "{{ php_fpm_defaults.max_children | default(4) }}"
-  pm_idle_timeout: "{{ php_fpm_defaults.process_idle_timeout | default('30s') }}"
-  pm_max_requests: "{{ php_fpm_defaults.max_requests | default(500) }}"
+  # Legacy pool names. null inherits the resolved server pool defaults.
+  pm_max_children: null
+  pm_idle_timeout: null
+  pm_max_requests: null
   memory_limit: 256M
   upload_max_filesize: 64M
   # wp-monitor content_spike: alert above N new posts (any type) in 24 h; 0 = off.

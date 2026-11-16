@@ -61,7 +61,7 @@ done
 for arg do
     case "$arg" in
         @*) if grep -q '"invalid"' "${arg#@}"; then
-                echo 'php-fpm8.4 failed'
+                echo 'test1.example: php_fpm.process_idle_timeout must be nonnegative seconds'
                 exit 2
             fi ;;
     esac

@@ -38,7 +38,7 @@ def resolve(site, server=None, legacy_defaults=None, cap=64):
         if flat in site and key in nested:
             raise AnsibleFilterError(f'Use either php_fpm.{key} or {flat}, not both')
     cfg = {**DEFAULTS, **server}
-    cfg.update({key: legacy_defaults[flat] for flat, key in LEGACY.items() if flat in legacy_defaults})
+    cfg.update({key: legacy_defaults[flat] for flat, key in LEGACY.items() if flat in legacy_defaults and legacy_defaults[flat] is not None})
     cfg.update(nested)
     cfg.update({key: site[flat] for flat, key in LEGACY.items() if flat in site})
     if not isinstance(cfg['pm'], str) or cfg['pm'] not in ('ondemand', 'dynamic'):
@@ -51,8 +51,9 @@ def resolve(site, server=None, legacy_defaults=None, cap=64):
     # Built-in inactive settings are harmless. Explicit inactive settings are errors.
     explicit = set(server) | set(nested)
     explicit.update(key for flat, key in LEGACY.items() if flat in site)
-    # Legacy role defaults contain an idle timeout for backward compatibility.
-    # Validate its value for ondemand, but do not treat it as a site mode choice.
+    # null legacy defaults inherit. Non-null overrides are explicit settings.
+    explicit.update(key for flat, key in LEGACY.items()
+                    if flat in legacy_defaults and legacy_defaults[flat] is not None)
     if cfg['pm'] == 'ondemand':
         if explicit & DYNAMIC:
             raise AnsibleFilterError('ondemand does not accept start_servers or spare server settings')
