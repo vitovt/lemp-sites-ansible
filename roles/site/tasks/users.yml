@@ -12,7 +12,10 @@
   ansible.builtin.assert:
     that:
       - site_cfg.user not in ['root', 'admin', 'default', 'mysql', 'valkey', 'nobody', 'daemon']
-      - ansible_facts.getent_passwd[site_cfg.user] is none or (ansible_facts.getent_passwd[site_cfg.user][4] == site_cfg.path and site_env_stat.stat.exists)
+      - >-
+        ansible_facts.getent_passwd[site_cfg.user] is none or
+        (ansible_facts.getent_passwd[site_cfg.user][4] == site_cfg.path and
+        (site_env_stat.stat.exists or site_provision.resume | default(false)))
       - ansible_facts.getent_passwd[site_cfg.user] is none or ansible_facts.getent_passwd[site_cfg.user][1] | int > 0
     fail_msg: "The account is not owned by this managed site."
 
@@ -27,7 +30,7 @@
     that:
       - >-
         ansible_facts.getent_passwd[site_cfg.user ~ '-php'] is none or
-        (ansible_facts.getent_passwd[site_cfg.user ~ '-php'][4] == site_cfg.path and site_env_stat.stat.exists)
+        (ansible_facts.getent_passwd[site_cfg.user ~ '-php'][4] == site_cfg.path and (site_env_stat.stat.exists or site_provision.resume | default(false)))
       - ansible_facts.getent_passwd[site_cfg.user ~ '-php'] is none or ansible_facts.getent_passwd[site_cfg.user ~ '-php'][1] | int > 0
     fail_msg: "The PHP runtime account is not owned by this managed site."
 

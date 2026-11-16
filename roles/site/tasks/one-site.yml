@@ -14,6 +14,13 @@
 
 - name: Docroot check ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: docroot.yml
+- name: Record or validate site provisioning intent
+  site_provision_intent:
+    domain: "{{ site_cfg.domain }}"
+    user: "{{ site_cfg.user }}"
+    site: "{{ site_cfg.path }}"
+  register: site_provision
+
 - name: Users ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: users.yml
 - name: Directories ({{ site_cfg.domain }})
@@ -49,6 +56,12 @@
   ansible.builtin.include_tasks: wpconfig.yml
 - name: PHP and Nginx route ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: switch-php.yml
+- name: Clear completed site registration intent
+  site_provision_intent:
+    domain: "{{ site_cfg.domain }}"
+    user: "{{ site_cfg.user }}"
+    site: "{{ site_cfg.path }}"
+
 - name: Local name for cache purge ({{ site_cfg.domain }})
   ansible.builtin.include_tasks: hosts.yml
 - name: Cron and logrotate ({{ site_cfg.domain }})

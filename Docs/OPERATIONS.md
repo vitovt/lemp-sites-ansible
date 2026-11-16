@@ -296,3 +296,24 @@ Route switching needs the exclusive lock and waits up to
 `site_operation_lock_timeout` seconds (default 120). On timeout no route changes
 are started; the error supplies `lslocks` and `fuser` diagnostics. Wait for the
 holder and retry. Never remove the lock file to bypass an active operation.
+
+## Interrupted initial site provisioning
+
+Before creating site Unix accounts, the role records a root-owned mode-0600
+identity marker at `/var/lib/wp-hosting/provision/DOMAIN.json`. A retry without
+`conf/site.env` must match that marker's domain, user and site path. Existing
+accounts must also have nonzero UID, matching home, the site primary group and
+`/usr/sbin/nologin`. A missing, unsafe or mismatched marker never authorizes
+adopting an existing account. No secrets are stored in the marker.
+
+After the PHP/Nginx transaction publishes `site.env`, the role clears the intent.
+The separate WordPress installation markers continue to govern interrupted
+core downloads/installations. `doctor` warns about existing site directories
+without `site.env` and prints both paths to inspect. New sites with no directory
+are not reported as interrupted.
+
+An old interrupted deployment such as `golapravda.blog`, created before intent
+markers existed, still requires explicit recovery after reviewing its existing
+accounts, files, database and controller secrets. Do not create an empty
+`site.env`, fabricate an intent marker, delete accounts, or regenerate secrets
+merely to bypass this guard. This change does not modify that live site.

@@ -197,3 +197,27 @@
 
 - name: Check existing secrets and database settings
   ansible.builtin.import_tasks: secrets.yml
+
+- name: Inspect site roots for interrupted provisioning
+  ansible.builtin.stat:
+    path: "{{ site_root | default('/srv/sites') }}/{{ item.key }}"
+  loop: "{{ wp_sites | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: preflight_site_roots
+
+- name: Report incomplete site registration
+  ansible.builtin.debug:
+    msg: >-
+      WARNING {{ item.item.key }}: site directory exists but conf/site.env is missing.
+      Provisioning may be incomplete. A recorded provisioning intent permits a safe
+      retry; existing accounts without that intent require explicit recovery.
+      Inspect /var/lib/wp-hosting/provision/{{ item.item.key }}.json and
+      {{ site_root | default('/srv/sites') }}/{{ item.item.key }}/conf on the server.
+      Do not create an empty site.env or delete users to bypass the check.
+  loop: "{{ preflight_site_roots.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when:
+    - item.stat.exists
+    - not (preflight_site_state.results | selectattr('item.key', 'equalto', item.item.key) | map(attribute='stat.exists') | first | default(false))
