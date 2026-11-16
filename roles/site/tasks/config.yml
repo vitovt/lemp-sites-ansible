@@ -9,3 +9,9 @@
            'db_name': (site_item.value | default({}, true)).db_name | default(site_item.key | regex_replace('[.-]', '_')),
            'php_version': site_item.value.php_version,
            'path': site_root ~ '/' ~ site_item.key }) }}
+
+- name: Resolve PHP-FPM pool settings
+  ansible.builtin.set_fact:
+    site_cfg: >-
+      {{ site_cfg | combine({'php_fpm': site_item.value | default({}, true) |
+         php_fpm_resolve(php_fpm_defaults, site_defaults, php_fpm_max_children_cap)}) }}

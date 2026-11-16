@@ -71,7 +71,8 @@
       {%-     endif -%}
       {%-   endfor -%}
       {%- endif -%}
-      {{ e }}
+      {{ e + (sites | php_fpm_errors(php_fpm_defaults | default({}), site_defaults | default({}),
+           php_fpm_max_children_cap | default(64), php_fpm_worker_est_mb | default(150))) }}
 
 - name: Reject invalid site settings before host checks
   ansible.builtin.assert:
@@ -188,6 +189,21 @@
   ansible.builtin.debug:
     msg: "Only {{ ansible_facts.memtotal_mb }} MiB RAM (recommended {{ preflight_min_mem_mb }}+)."
   when: (ansible_facts.memtotal_mb | default(0) | int) < (preflight_min_mem_mb | int)
+
+- name: Warn about PHP-FPM memory capacity
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: PHP-FPM pools allow {{ preflight_fpm_workers }} workers.
+      At {{ php_fpm_worker_est_mb | default(150) }} MiB per worker, this is
+      {{ preflight_fpm_workers | int * (php_fpm_worker_est_mb | default(150) | int) }} MiB;
+      host RAM is {{ ansible_facts.memtotal_mb }} MiB. Reduce pool limits or add RAM.
+  vars:
+    preflight_fpm_workers: >-
+      {{ wp_sites | default({}) | php_fpm_workers(php_fpm_defaults | default({}),
+         site_defaults | default({}), php_fpm_max_children_cap | default(64)) }}
+  when: >-
+    preflight_fpm_workers | int * (php_fpm_worker_est_mb | default(150) | int)
+    > (ansible_facts.memtotal_mb | int)
 
 - name: Preflight result
   ansible.builtin.assert:

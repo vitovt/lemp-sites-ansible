@@ -180,14 +180,14 @@ if a.phase in ('all', 'deploy', 'transitions'):
             if 'needs PHP 99.99 installed and managed' not in (work / 'missing-php.log').read_text():
                 raise SystemExit('FAIL missing PHP branch did not produce a clear error')
             remote(privileged('sha256sum -c ' + shlex.quote(target_checksum)))
-            # An FPM validation failure must restore the old pool and route.
+            # Invalid pool settings must fail preflight without changing the pool or route.
             bad = dict(site_list)
             bad['test1.example'] = {**bad['test1.example'], 'pm_idle_timeout': 'invalid'}
             changed_path.write_text(json.dumps({'wp_sites': bad}))
             play('site-apply', 'invalid-fpm.log', '-e', '@' + str(changed_path),
                  '-e', 'wp_site_only=test1.example', expect_failure=True)
-            if 'php-fpm8.4 failed' not in (work / 'invalid-fpm.log').read_text():
-                raise SystemExit('FAIL invalid FPM configuration did not reach the rollback path')
+            if 'php_fpm.process_idle_timeout' not in (work / 'invalid-fpm.log').read_text():
+                raise SystemExit('FAIL invalid FPM timeout did not fail preflight')
             remote(privileged('sha256sum -c ' + shlex.quote(target_checksum)))
             remote(privileged("curl --noproxy '*' -skf --max-time 20 -o /dev/null "
                               "https://test1.example/wp-login.php"))

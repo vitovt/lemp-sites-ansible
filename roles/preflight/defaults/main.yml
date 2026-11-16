@@ -23,6 +23,7 @@ preflight_site_keys:
   - redis
   - xmlrpc
   - table_prefix
+  - php_fpm
   - pm_max_children
   - pm_idle_timeout
   - pm_max_requests

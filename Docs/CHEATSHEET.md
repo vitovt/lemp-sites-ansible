@@ -286,6 +286,50 @@ The default certificate method is `dns-cloudflare`. For HTTP-01, set
 [certificate setup](DEPLOYMENT.md#certificates). A new PHP branch needs a full
 `site` run. `site-apply` refuses a branch that is not installed and managed.
 
+### Set PHP-FPM pool capacity
+
+> [!INFO]
+> Default pool: ondemand, 4 workers, 30s idle, 500 requests. A missing option keeps this default.
+
+Set partial server defaults in `settings.yml` with `php_fpm_defaults`.
+Set site overrides in `sites.yml`:
+
+```yaml
+wp_sites:
+  example.com:
+    php_version: "8.4"
+    php_fpm:
+      pm: ondemand
+      max_children: 8
+```
+
+```sh
+scripts/lemp my-server doctor
+scripts/lemp my-server site-apply example.com
+```
+
+A pool-only change reloads PHP-FPM. It does not reload Nginx.
+A second run with the same values makes no changes.
+
+> [!WARNING]
+> `doctor` warns if all `max_children` times the estimated worker memory exceed host RAM. The play still continues. Measure RSS before a large increase.
+
+The estimate is `php_fpm_worker_est_mb` (default: 150 MiB).
+It does not reserve memory for the database or other services.
+Keep spare RAM for those services and traffic peaks.
+The per-site hard limit is `php_fpm_max_children_cap` (default: 64).
+
+For `pm: dynamic`, set `start_servers`, `min_spare_servers`, and
+`max_spare_servers`. Do not set `process_idle_timeout`.
+Use `min_spare_servers <= start_servers <= max_spare_servers <= max_children`.
+For `ondemand`, do not set the three dynamic fields.
+
+Each partial layer overrides the previous layer: built-in defaults, server
+`php_fpm_defaults`, legacy `site_defaults.pm_*`, site `php_fpm`, and site
+`pm_*`. The legacy names remain supported. Do not set a nested field and its
+legacy name on the same site. Do not replace `site_defaults` to tune a server;
+use `php_fpm_defaults` instead.
+
 ## 6. Make a backup outside the schedule
 
 - [ ] Connect to the server as an administrator.

@@ -85,6 +85,15 @@ all:
           # Each site selects an explicit PHP branch in sites.yml. A full site
           # run installs available packages from Sury for the requested branches.
           # Test WordPress and plugins before changing a live site's branch.
+          # Partial pool defaults. Omitted fields keep the role defaults.
+          # Raise max_children only after measuring RAM use and concurrent load.
+          # php_fpm_defaults:
+          #   pm: ondemand
+          #   max_children: 4
+          #   process_idle_timeout: 30s
+          #   max_requests: 500
+          # php_fpm_worker_est_mb: 150  # Capacity warning estimate, in MiB.
+          # php_fpm_max_children_cap: 64  # Hard limit for each pool.
           # Advanced INI maps are in role defaults.
           # php_ini_fpm_by_version: {"8.4": {memory_limit: 256M}}
           # Do not change repository URLs or key fingerprints for routine use.

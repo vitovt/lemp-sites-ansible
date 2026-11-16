@@ -11,10 +11,10 @@ site_defaults:
   xmlrpc: false
   # Table prefix for a NEW wp-config.php only.
   table_prefix: wp_
-  # FPM pool limits (pm = ondemand).
-  pm_max_children: 4
-  pm_idle_timeout: 30s
-  pm_max_requests: 500
+  # Legacy pool names. Server defaults remain effective when no site override exists.
+  pm_max_children: "{{ php_fpm_defaults.max_children | default(4) }}"
+  pm_idle_timeout: "{{ php_fpm_defaults.process_idle_timeout | default('30s') }}"
+  pm_max_requests: "{{ php_fpm_defaults.max_requests | default(500) }}"
   memory_limit: 256M
   upload_max_filesize: 64M
   # wp-monitor content_spike: alert above N new posts (any type) in 24 h; 0 = off.
@@ -54,3 +54,8 @@ site_wp_install: false
 
 # Wait for short WP-Cron shared locks before switching a route (seconds).
 site_operation_lock_timeout: 120
+
+# Public server settings use the php_fpm prefix. The resolver fills missing keys.
+php_fpm_defaults: {}  # noqa var-naming[no-role-prefix]
+php_fpm_worker_est_mb: 150  # noqa var-naming[no-role-prefix]
+php_fpm_max_children_cap: 64  # noqa var-naming[no-role-prefix]
