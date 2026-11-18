@@ -16,7 +16,7 @@
 #   plugin_checksums  wp plugin verify-checksums --all (wordpress.org plugins only)
 #   stray_php         PHP directly in wp-content (except wp_monitor_dropins),
 #                     hidden .*.php and .user.ini anywhere
-#   php_in_writable   *.php / *.phtml / *.phar in uploads, cache, upgrade
+#   php_in_writable   PHP extensions (also double extensions) in uploads, cache, upgrade
 #   permissions      read-only site-fix-perms --check (ownership and modes)
 #   git_status        uncommitted or untracked files in htdocs (baseline: wp-git-commit)
 #   admin_users       administrators (id + login) vs baseline: added/removed = alert,

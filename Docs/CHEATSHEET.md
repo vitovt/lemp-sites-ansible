@@ -567,7 +567,7 @@ SKIP example.com valkey: redis: false
 | `core_checksums` | Core checksums and unexpected files under the configured rules |
 | `plugin_checksums` | Plugin integrity under the site's code policy |
 | `stray_php` | Unexpected PHP-like files in selected locations and `.user.ini` files |
-| `php_in_writable` | PHP-like files in configured writable content directories |
+| `php_in_writable` | PHP extensions in writable directories, including `.php.jpg` and `.php.bak`; an embedded `.php_` in an image name does not match |
 | `git_status` | Changed or untracked site files |
 | `admin_users` | Current administrators against the saved baseline |
 | `content_spike` | New content against the configured time and count limits |

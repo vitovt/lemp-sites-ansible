@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MonitorTests(unittest.TestCase):
-    def run_monitor(self, *, core_error=False, missing=False, bad_json=False, success_line=False, permissions=None, nightly=False):
+    def run_monitor(self, *, core_error=False, missing=False, bad_json=False, success_line=False, permissions=None, nightly=False, writable_files=None):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             site = base / 'sites/example.com'
@@ -22,6 +22,12 @@ class MonitorTests(unittest.TestCase):
             (base / 'config').write_text(f'STATE_DIR={base}/state\nWPCLI=/mock/wp\nCHECKS="core_checksums plugin_checksums"\n')
             if permissions is not None:
                 (base / 'config').write_text(f'STATE_DIR={base}/state\nWPCLI=/mock/wp\nCHECKS="permissions"\n')
+            if writable_files is not None:
+                (base / 'config').write_text(f'STATE_DIR={base}/state\nWPCLI=/mock/wp\nCHECKS="php_in_writable"\nWRITABLE_DIRS="wp-content/uploads wp-content/cache wp-content/upgrade"\n')
+                for relative, content in writable_files.items():
+                    target = site / 'htdocs' / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content)
             (base / 'bin').mkdir()
             permission_helper = base / 'bin/site-fix-perms'
             permission_helper.write_text('#!/bin/sh\n'
@@ -55,6 +61,32 @@ esac
                 .replace('/usr/local/sbin/site-fix-perms', str(permission_helper)))
             return subprocess.run(['bash', str(script), *(['example.com'] if nightly else ['--check', 'example.com'])],
                 env={**os.environ, 'PATH': str(base / 'bin') + ':' + os.environ['PATH']}, text=True, capture_output=True)
+
+    def test_php_text_inside_image_name_is_not_a_php_extension(self):
+        files = {f'wp-content/uploads/2016/12/safe_image.php_{size}.jpg': 'image fixture'
+                 for size in ('-370x297', '-300x188', '-65x65', '-1170x400', '-300x200')}
+        files['wp-content/uploads/source.php_/photo.jpg'] = 'image fixture'
+        result = self.run_monitor(writable_files=files)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('PASS example.com php_in_writable', result.stdout)
+
+    def test_php_extensions_and_disguised_double_extensions_still_fail(self):
+        for name in ('shell.php', 'shell.PHP', 'shell.php5', 'shell.PHP8',
+                     'shell.phtml', 'shell.phar', 'shell.php.jpg', 'shell.php.bak',
+                     'shell.phtml.jpg', 'shell.phar.old', 'space name.php'):
+            for directory in ('uploads', 'cache', 'upgrade'):
+                with self.subTest(name=name, directory=directory):
+                    relative = f'wp-content/{directory}/{name}'
+                    result = self.run_monitor(writable_files={relative: '<?php echo "unexpected"; '})
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn(relative, result.stdout)
+                    self.assertIn('FAIL example.com php_in_writable', result.stdout)
+
+    def test_silence_index_exception_stays_content_limited(self):
+        for content, expected in (('<?php // Silence is golden.', 0), ('', 0),
+                                  ('<?php echo "unexpected";', 1)):
+            result = self.run_monitor(writable_files={'wp-content/uploads/index.php': content})
+            self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
 
     def test_permissions_check_reports_only_summary(self):
         for safe in (True, False):

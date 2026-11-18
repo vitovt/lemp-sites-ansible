@@ -210,8 +210,11 @@ check_site() {  # $1 = site dir
         local d paths=()
         for d in $WRITABLE_DIRS; do [ -d "$htdocs/$d" ] && paths+=("$htdocs/$d"); done
         out=""
-        [ ${#paths[@]} -eq 0 ] || out=$(find "${paths[@]}" -type f \( -iname '*.php*' -o -iname '*.phtml' -o -iname '*.phar' \) 2>/dev/null \
-            | while read -r f; do silence "$f" || printf '%s\n' "${f#"$htdocs"/}"; done)
+        # Match PHP extension components, including double extensions and backups.
+        # An embedded string such as safe_image.php_-300x200.jpg is not an extension.
+        [ ${#paths[@]} -eq 0 ] || out=$(find "${paths[@]}" -regextype posix-extended -type f \
+            -iregex '.*/[^/]*\.(php[0-9]?|phtml|phar)(\.[^/]*)?' 2>/dev/null \
+            | while IFS= read -r f; do silence "$f" || printf '%s\n' "${f#"$htdocs"/}"; done)
         files "$out"
         [ -z "$out" ] && ok php_in_writable || p php_in_writable "$(grep -c . <<<"$out") files: $(oneline 5 <<<"$out")"
     fi
